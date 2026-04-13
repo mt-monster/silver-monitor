@@ -12,7 +12,7 @@ Windows IPv4 专用绑定
 """
 
 from backend.bootstrap import prime_caches
-from backend.config import FAST_POLL, PORT, SLOW_POLL, log
+from backend.config import FAST_POLL, PORT, SERVER_HOST, SLOW_POLL, log
 from backend.http_server import MonitorRequestHandler, ThreadedHttpServer
 from backend.pollers import FastDataPoller, SlowDataPoller
 from backend.state import state
@@ -28,6 +28,7 @@ def build_startup_banner():
        Slow poll: %ds (akshare history + Sina USDCNY)
     ──────────────────────────────────────────────────────
        Alert: 3-Tick jump > %.1f%%
+       Bind: %s:%d
        Endpoints:
        GET /              Frontend
        GET /api/all       Combined (Silver+Gold+Spread+HV)
@@ -38,7 +39,7 @@ def build_startup_banner():
        GET /api/alerts    Alert History
        GET /api/status    Service Status
     ══════════════════════════════════════════════════════
-    """ % (FAST_POLL, SLOW_POLL, state.tick_jump_threshold)
+    """ % (FAST_POLL, SLOW_POLL, state.tick_jump_threshold, SERVER_HOST, PORT)
 
 
 def main():
@@ -51,7 +52,7 @@ def main():
     slow_poller.start()
 
     try:
-        server = ThreadedHttpServer(("0.0.0.0", PORT), MonitorRequestHandler)
+        server = ThreadedHttpServer((SERVER_HOST, PORT), MonitorRequestHandler)
         log.info(f"Server started: http://127.0.0.1:{PORT}/")
     except OSError as exc:
         log.error(f"Failed to bind port {PORT}: {exc}")

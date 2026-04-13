@@ -1,68 +1,47 @@
 (function () {
   const Monitor = window.Monitor;
-  const { app, charts, constants, el } = Monitor;
+  const { app, charts, constants, el, renderers } = Monitor;
 
   Monitor.updateGoldPriceCards = function (data) {
     const au = data.hujin;
     const cg = data.comexGold;
     const sp = data.goldSpread;
 
-    if (au && !au.error) {
-      const auEl = el("auPrice");
-      if (au.closed) {
-        auEl.textContent = "—";
-        auEl.className = "price-main";
-        el("auChange").textContent = au.status_desc || "休盘中";
-        el("auChange").className = "price-change";
-        el("auSub").innerHTML = "";
-        el("auSource").textContent = "休市";
-      } else {
-        const dir = (au.change || 0) >= 0 ? "up" : "down";
-        auEl.textContent = (au.price || 0).toFixed(2);
-        auEl.className = "price-main " + dir;
-        const sign = au.change >= 0 ? "+" : "";
-        el("auChange").innerHTML = `${sign}${(au.change || 0).toFixed(2)} (${sign}${(au.changePercent || 0).toFixed(2)}%)`;
-        el("auChange").className = "price-change " + dir;
-        el("auSub").innerHTML =
-          `<span>开 ${(au.open || 0).toFixed(2)}</span><span>高 ${(au.high || 0).toFixed(2)}</span><span>低 ${(au.low || 0).toFixed(2)}</span><span>昨收 ${(au.prevClose || 0).toFixed(2)}</span>`;
-        el("auSource").textContent = au.source || "--";
-      }
-    }
+    renderers.renderMarketCard({
+      priceId: "auPrice",
+      changeId: "auChange",
+      subId: "auSub",
+      sourceId: "auSource",
+      market: au,
+      decimals: 2,
+      subHtmlBuilder: market =>
+        `<span>开 ${(market.open || 0).toFixed(2)}</span><span>高 ${(market.high || 0).toFixed(2)}</span><span>低 ${(market.low || 0).toFixed(2)}</span><span>昨收 ${(market.prevClose || 0).toFixed(2)}</span>`,
+    });
 
-    if (cg && !cg.error) {
-      const cgEl = el("cgPrice");
-      if (cg.closed) {
-        cgEl.textContent = "—";
-        cgEl.className = "price-main";
-        el("cgChange").textContent = cg.status_desc || "休盘中";
-        el("cgChange").className = "price-change";
-        el("cgSub").innerHTML = "";
-        el("cgSource").textContent = "休市";
-      } else {
-        const dir = (cg.change || 0) >= 0 ? "up" : "down";
-        cgEl.textContent = (cg.price || 0).toFixed(2);
-        cgEl.className = "price-main " + dir;
-        const sign = cg.change >= 0 ? "+" : "";
-        el("cgChange").innerHTML = `${sign}${(cg.change || 0).toFixed(2)} (${sign}${(cg.changePercent || 0).toFixed(2)}%)`;
-        el("cgChange").className = "price-change " + dir;
-        const cnyG = cg.priceCnyG ? cg.priceCnyG.toFixed(2) : "--";
-        el("cgSub").innerHTML = `<span>≈${cnyG}元/克</span><span>开 ${(cg.open || 0).toFixed(2)}</span><span>高 ${(cg.high || 0).toFixed(2)}</span><span>低 ${(cg.low || 0).toFixed(2)}</span>`;
-        el("cgSource").textContent = cg.source || "--";
-      }
-    }
+    renderers.renderMarketCard({
+      priceId: "cgPrice",
+      changeId: "cgChange",
+      subId: "cgSub",
+      sourceId: "cgSource",
+      market: cg,
+      decimals: 2,
+      subHtmlBuilder: market => {
+        const cnyG = market.priceCnyG ? market.priceCnyG.toFixed(2) : "--";
+        return `<span>≈${cnyG}元/克</span><span>开 ${(market.open || 0).toFixed(2)}</span><span>高 ${(market.high || 0).toFixed(2)}</span><span>低 ${(market.low || 0).toFixed(2)}</span>`;
+      },
+    });
 
-    if (sp && sp.ratio) {
-      el("goldSpreadRatio").textContent = sp.ratio.toFixed(4);
-      const statusEl = el("goldSpreadStatus");
-      statusEl.textContent = sp.status || "N/A";
-      statusEl.className =
-        "spread-status " +
-        ((sp.status || "").includes("溢价") ? "premium" : (sp.status || "").includes("折价") ? "discount" : "balanced");
-      el("goldSpreadDetail").textContent = `价差 ${(sp.cnySpread || 0).toFixed(2)} 元/克 | 汇率 ${(sp.usdCNY || 0).toFixed(4)} | 因子 ${(sp.convFactor || 0).toFixed(2)}`;
-    }
+    renderers.renderSpreadCard({
+      ratioId: "goldSpreadRatio",
+      statusId: "goldSpreadStatus",
+      detailId: "goldSpreadDetail",
+      spread: sp,
+      detailTextBuilder: spread => `价差 ${(spread.cnySpread || 0).toFixed(2)} 元/克 | 汇率 ${(spread.usdCNY || 0).toFixed(4)} | 因子 ${(spread.convFactor || 0).toFixed(2)}`,
+    });
 
-    if (data.goldSilverRatio) {
-      el("goldSilverRatio").textContent = data.goldSilverRatio.toFixed(2);
+    const goldSilverRatioEl = el("goldSilverRatio");
+    if (goldSilverRatioEl && data.goldSilverRatio) {
+      goldSilverRatioEl.textContent = data.goldSilverRatio.toFixed(2);
     }
   };
 
@@ -85,10 +64,8 @@
 
     const auAtr = Monitor.calculateAtr(auHist, 14);
     const cgAtr = Monitor.calculateAtr(cgHist, 14);
-    el("auATR").textContent = auAtr ? auAtr.toFixed(2) + " 元/克" : "--";
-    el("cgATR").textContent = cgAtr ? cgAtr.toFixed(2) + " $/oz" : "--";
-    el("auATRBar").style.width = Math.min(100, (auAtr / 10) * 100) + "%";
-    el("cgATRBar").style.width = Math.min(100, (cgAtr / 50) * 100) + "%";
+    renderers.renderAtrMetric({ valueId: "auATR", barId: "auATRBar", atrValue: auAtr, decimals: 2, unit: "元/克", maxScale: 10 });
+    renderers.renderAtrMetric({ valueId: "cgATR", barId: "cgATRBar", atrValue: cgAtr, decimals: 2, unit: "$/oz", maxScale: 50 });
   };
 
   Monitor.updateGoldRtCharts = function () {
@@ -126,10 +103,7 @@
   };
 
   Monitor.renderGoldTickTables = function () {
-    const formatTime = ts => new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
-    el("auTickCount").textContent = app.goldTicks.length + " ticks";
-    el("cgTickCount").textContent = app.comexGoldTicks.length + " ticks";
-    el("auTickBody").innerHTML = app.goldTicks.map(row => `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(2)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${row.source}</td></tr>`).join("");
-    el("cgTickBody").innerHTML = app.comexGoldTicks.map(row => `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(2)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${row.source}</td></tr>`).join("");
+    renderers.renderTickTable({ countId: "auTickCount", bodyId: "auTickBody", rows: app.goldTicks, priceDecimals: 2 });
+    renderers.renderTickTable({ countId: "cgTickCount", bodyId: "cgTickBody", rows: app.comexGoldTicks, priceDecimals: 2 });
   };
 })();

@@ -1,65 +1,41 @@
 (function () {
   const Monitor = window.Monitor;
-  const { app, charts, constants, el } = Monitor;
+  const { app, charts, constants, el, renderers } = Monitor;
 
   Monitor.updatePriceCards = function (data) {
     const hu = data.huyin;
     const co = data.comex;
     const sp = data.spread;
 
-    if (hu && !hu.error) {
-      const huEl = el("huPrice");
-      if (hu.closed) {
-        huEl.textContent = "—";
-        huEl.className = "price-main";
-        el("huChange").textContent = hu.status_desc || "休盘中";
-        el("huChange").className = "price-change";
-        el("huSub").innerHTML = "";
-        el("huSource").textContent = "休市";
-      } else {
-        const dir = (hu.change || 0) >= 0 ? "up" : "down";
-        huEl.textContent = hu.price.toFixed(1);
-        huEl.className = "price-main " + dir;
-        const sign = hu.change >= 0 ? "+" : "";
-        el("huChange").innerHTML = `${sign}${(hu.change || 0).toFixed(1)} (${sign}${(hu.changePercent || 0).toFixed(2)}%)`;
-        el("huChange").className = "price-change " + dir;
-        el("huSub").innerHTML =
-          `<span>开 ${(hu.open || 0).toFixed(1)}</span><span>高 ${(hu.high || 0).toFixed(1)}</span><span>低 ${(hu.low || 0).toFixed(1)}</span><span>昨收 ${(hu.prevClose || 0).toFixed(1)}</span>`;
-        el("huSource").textContent = hu.source || "--";
-      }
-    }
+    renderers.renderMarketCard({
+      priceId: "huPrice",
+      changeId: "huChange",
+      subId: "huSub",
+      sourceId: "huSource",
+      market: hu,
+      decimals: 1,
+      subHtmlBuilder: market =>
+        `<span>开 ${(market.open || 0).toFixed(1)}</span><span>高 ${(market.high || 0).toFixed(1)}</span><span>低 ${(market.low || 0).toFixed(1)}</span><span>昨收 ${(market.prevClose || 0).toFixed(1)}</span>`,
+    });
 
-    if (co && !co.error) {
-      const coEl = el("coPrice");
-      if (co.closed) {
-        coEl.textContent = "—";
-        coEl.className = "price-main";
-        el("coChange").textContent = co.status_desc || "休盘中";
-        el("coChange").className = "price-change";
-        el("coSub").innerHTML = "";
-        el("coSource").textContent = "休市";
-      } else {
-        const dir = (co.change || 0) >= 0 ? "up" : "down";
-        coEl.textContent = co.price.toFixed(3);
-        coEl.className = "price-main " + dir;
-        const sign = co.change >= 0 ? "+" : "";
-        el("coChange").innerHTML = `${sign}${(co.change || 0).toFixed(3)} (${sign}${(co.changePercent || 0).toFixed(2)}%)`;
-        el("coChange").className = "price-change " + dir;
-        el("coSub").innerHTML =
-          `<span>≈${(co.priceCny || 0).toFixed(1)}元/kg</span><span>开 ${(co.open || 0).toFixed(3)}</span><span>高 ${(co.high || 0).toFixed(3)}</span><span>低 ${(co.low || 0).toFixed(3)}</span>`;
-        el("coSource").textContent = co.source || "--";
-      }
-    }
+    renderers.renderMarketCard({
+      priceId: "coPrice",
+      changeId: "coChange",
+      subId: "coSub",
+      sourceId: "coSource",
+      market: co,
+      decimals: 3,
+      subHtmlBuilder: market =>
+        `<span>≈${(market.priceCny || 0).toFixed(1)}元/kg</span><span>开 ${(market.open || 0).toFixed(3)}</span><span>高 ${(market.high || 0).toFixed(3)}</span><span>低 ${(market.low || 0).toFixed(3)}</span>`,
+    });
 
-    if (sp && sp.ratio) {
-      el("spreadRatio").textContent = sp.ratio.toFixed(4);
-      const statusEl = el("spreadStatus");
-      statusEl.textContent = sp.status || "N/A";
-      statusEl.className =
-        "spread-status " +
-        ((sp.status || "").includes("溢价") ? "premium" : (sp.status || "").includes("折价") ? "discount" : "balanced");
-      el("spreadDetail").textContent = `价差 ${(sp.cnySpread || 0).toFixed(1)} 元/kg | 汇率 ${(sp.usdCNY || 0).toFixed(4)} | 因子 ${(sp.convFactor || 0).toFixed(2)}`;
-    }
+    renderers.renderSpreadCard({
+      ratioId: "spreadRatio",
+      statusId: "spreadStatus",
+      detailId: "spreadDetail",
+      spread: sp,
+      detailTextBuilder: spread => `价差 ${(spread.cnySpread || 0).toFixed(1)} 元/kg | 汇率 ${(spread.usdCNY || 0).toFixed(4)} | 因子 ${(spread.convFactor || 0).toFixed(2)}`,
+    });
   };
 
   Monitor.updateCharts = function (data) {
@@ -79,10 +55,8 @@
 
     const huAtr = Monitor.calculateAtr(huHist, 14);
     const coAtr = Monitor.calculateAtr(coHist, 14);
-    el("huATR").textContent = huAtr ? huAtr.toFixed(1) + " 元/kg" : "--";
-    el("coATR").textContent = coAtr ? coAtr.toFixed(3) + " $/oz" : "--";
-    el("huATRBar").style.width = Math.min(100, (huAtr / 300) * 100) + "%";
-    el("coATRBar").style.width = Math.min(100, (coAtr / 1.5) * 100) + "%";
+    renderers.renderAtrMetric({ valueId: "huATR", barId: "huATRBar", atrValue: huAtr, decimals: 1, unit: "元/kg", maxScale: 300 });
+    renderers.renderAtrMetric({ valueId: "coATR", barId: "coATRBar", atrValue: coAtr, decimals: 3, unit: "$/oz", maxScale: 1.5 });
   };
 
   Monitor.updateRtCharts = function () {
@@ -119,11 +93,7 @@
   };
 
   Monitor.renderTickTables = function () {
-    const formatTime = ts => new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
-    const pctCell = v => (v > 0 ? `<span class="pct up">+${v.toFixed(3)}%</span>` : v < 0 ? `<span class="pct down">${v.toFixed(3)}%</span>` : `<span class="pct">0.000%</span>`);
-    el("huTickCount").textContent = app.silverTicks.length + " ticks";
-    el("coTickCount").textContent = app.comexSilverTicks.length + " ticks";
-    el("huTickBody").innerHTML = app.silverTicks.map(row => `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(1)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${row.source}</td></tr>`).join("");
-    el("coTickBody").innerHTML = app.comexSilverTicks.map(row => `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(3)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${row.source}</td></tr>`).join("");
+    renderers.renderTickTable({ countId: "huTickCount", bodyId: "huTickBody", rows: app.silverTicks, priceDecimals: 1 });
+    renderers.renderTickTable({ countId: "coTickCount", bodyId: "coTickBody", rows: app.comexSilverTicks, priceDecimals: 3 });
   };
 })();

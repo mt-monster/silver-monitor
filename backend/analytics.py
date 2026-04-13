@@ -3,6 +3,7 @@ import time
 from datetime import datetime, timezone
 
 from backend.config import CST, OZ_TO_G, OZ_TO_KG
+from backend.models import CombinedApiResponse
 from backend.state import state
 from backend.utils import get_conv, get_conv_gold
 
@@ -29,7 +30,7 @@ def compute_rolling_hv(history_list, window=20):
     return result
 
 
-def rebuild_all_cache():
+def rebuild_all_cache() -> CombinedApiResponse:
     with state.cache_lock:
         huyin = state.silver_cache.get("data")
         comex = state.comex_silver_cache.get("data")
@@ -110,7 +111,7 @@ def rebuild_all_cache():
     if comex_gold and comex_gold.get("price", 0) > 0 and comex and comex.get("price", 0) > 0:
         gold_silver_ratio = round(comex_gold["price"] / comex["price"], 2)
 
-    all_data = {
+    all_data: CombinedApiResponse = {
         "comex": comex if comex else {"error": "comex_no_data"},
         "huyin": huyin if huyin else {"error": "huyin_no_data"},
         "comexGold": comex_gold if comex_gold else {"error": "comex_gold_no_data"},
@@ -128,3 +129,5 @@ def rebuild_all_cache():
     with state.cache_lock:
         state.combined_cache["data"] = all_data
         state.combined_cache["ts"] = time.time()
+
+    return all_data

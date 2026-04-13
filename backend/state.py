@@ -1,6 +1,8 @@
 import threading
 from dataclasses import dataclass, field
 
+from backend.config import DEFAULT_ALERT_MAX_HISTORY, DEFAULT_TICK_JUMP_THRESHOLD
+
 
 def _cache():
     return {"data": None, "ts": 0}
@@ -31,8 +33,8 @@ class AppState:
     combined_cache: dict = field(default_factory=_cache)
     usd_cny_cache: dict = field(default_factory=_rate_cache)
 
-    tick_jump_threshold: float = 1.0
-    alert_max_history: int = 200
+    tick_jump_threshold: float = DEFAULT_TICK_JUMP_THRESHOLD
+    alert_max_history: int = DEFAULT_ALERT_MAX_HISTORY
 
     silver_tick_ring: list = field(default_factory=list)
     comex_silver_tick_ring: list = field(default_factory=list)

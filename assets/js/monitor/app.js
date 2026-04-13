@@ -8,8 +8,9 @@
   };
 
   Monitor.fetchData = async function () {
+    const refreshButton = el("refreshBtn");
     try {
-      el("refreshBtn").classList.add("spinning");
+      if (refreshButton) refreshButton.classList.add("spinning");
       const resp = await fetch(`${Monitor.apiBase}/api/all?t=${Date.now()}`, { cache: "no-store" });
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       const data = await resp.json();
@@ -35,7 +36,7 @@
       el("liveDot").style.background = "#f85149";
       el("debugInfo").textContent = "连接失败";
     } finally {
-      el("refreshBtn").classList.remove("spinning");
+      if (refreshButton) refreshButton.classList.remove("spinning");
     }
   };
 
@@ -59,11 +60,13 @@
   };
 
   Monitor.init = function () {
-    Monitor.buildThresholdMenu();
-    Monitor.fetchData();
-    Monitor.fetchAlerts();
-    setInterval(Monitor.fetchData, Monitor.constants.POLL_MS);
-    setInterval(Monitor.fetchAlerts, Monitor.constants.ALERT_POLL_MS);
+    return Monitor.loadRuntimeConfig().then(() => {
+      Monitor.buildThresholdMenu();
+      Monitor.fetchData();
+      Monitor.fetchAlerts();
+      setInterval(Monitor.fetchData, Monitor.constants.POLL_MS);
+      setInterval(Monitor.fetchAlerts, Monitor.constants.ALERT_POLL_MS);
+    });
   };
 
   window.switchTab = Monitor.switchTab;

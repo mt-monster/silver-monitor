@@ -52,17 +52,39 @@
   };
 
   Monitor.renderSignal = function (prefix, info, decimals) {
-    if (!info) return;
-    const badge = el(prefix + "SigBadge");
+    const findEl = (...ids) => ids.map(id => el(id)).find(Boolean);
+    const badge = findEl(prefix + "SignalBadge", prefix + "SigBadge");
+    const rocEl = findEl(prefix + "ROC", prefix + "SigSlope");
+    const emaFastEl = findEl(prefix + "EmaF", prefix + "SigEmaS");
+    const emaSlowEl = findEl(prefix + "EmaS", prefix + "SigEmaL");
+    const pointsEl = findEl(prefix + "SigPts");
+    const noteEl = findEl(prefix + "SigNote");
+    const bar = findEl(prefix + "SigBar");
+
+    if (!badge || !rocEl || !emaFastEl || !emaSlowEl || !bar) return;
+
+    if (!info) {
+      badge.className = "signal-badge neutral";
+      badge.textContent = "等待";
+      rocEl.textContent = "--";
+      emaFastEl.textContent = "--";
+      emaSlowEl.textContent = "--";
+      bar.style.width = "50%";
+      bar.className = "signal-bar-inner flat";
+      if (pointsEl) pointsEl.textContent = "--";
+      if (noteEl) noteEl.textContent = "需累积 40+ 个 tick 后产生信号";
+      return;
+    }
+
     badge.className = "signal-badge " + info.signal.replace("_", "-");
     badge.textContent = Monitor.signalLabels[info.signal];
-    el(prefix + "SigSpread").innerHTML = `<span class="val ${info.spreadPct >= 0 ? "up" : "down"}">${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%</span>`;
-    el(prefix + "SigSlope").innerHTML = `<span class="val ${info.slopePct >= 0 ? "up" : "down"}">${info.slopePct >= 0 ? "+" : ""}${info.slopePct.toFixed(3)}%</span>`;
-    el(prefix + "SigEmaS").textContent = info.shortEMA.toFixed(decimals);
-    el(prefix + "SigEmaL").textContent = info.longEMA.toFixed(decimals);
-    const bar = el(prefix + "SigBar");
+    rocEl.innerHTML = `<span class="val ${info.slopePct >= 0 ? "up" : "down"}">${info.slopePct >= 0 ? "+" : ""}${info.slopePct.toFixed(3)}%</span>`;
+    emaFastEl.textContent = info.shortEMA.toFixed(decimals);
+    emaSlowEl.textContent = info.longEMA.toFixed(decimals);
     bar.style.width = info.strength.toFixed(0) + "%";
     bar.className = "signal-bar-inner " + (info.signal.includes("buy") ? "bull" : info.signal.includes("sell") ? "bear" : "flat");
+    if (pointsEl) pointsEl.textContent = "实时";
+    if (noteEl) noteEl.textContent = `动量差 ${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
   };
 
   Monitor.playSignalTone = function (signal) {

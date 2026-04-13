@@ -53,6 +53,8 @@ silver-monitor/
 │  │  └─ monitor.css
 │  └─ js/
 │     └─ monitor/
+│        ├─ dom.js
+│        ├─ renderers.js
 │        ├─ alerts.js
 │        ├─ app.js
 │        ├─ charts.js
@@ -68,12 +70,17 @@ silver-monitor/
 │  ├─ config.py
 │  ├─ http_server.py
 │  ├─ market_hours.py
+│  ├─ models.py
 │  ├─ pollers.py
 │  ├─ sources.py
 │  ├─ state.py
 │  └─ utils.py
+├─ docs/
+│  └─ data-models.md
+├─ tests/
 ├─ miniprogram/
 ├─ index.html
+├─ monitor.config.json
 ├─ server.py
 └─ README.md
 ```
@@ -103,6 +110,9 @@ silver-monitor/
 - 时区
 - 日志
 - `akshare` 初始化
+- 配置文件加载
+
+配置默认从根目录 `monitor.config.json` 读取。
 
 #### `backend/state.py`
 
@@ -180,6 +190,14 @@ silver-monitor/
 - `/api/sources`
 - `/api/threshold`
 
+#### `backend/models.py`
+
+维护统一的数据模型定义与类型约定，便于：
+
+- 统一接口字段语义
+- 统一聚合对象结构
+- 为文档与测试提供公共参照
+
 #### `backend/bootstrap.py`
 
 服务启动时的缓存预热逻辑：
@@ -218,6 +236,25 @@ silver-monitor/
 - 页面运行时状态
 - DOM 查询工具
 - API 基础地址推导
+- 运行时配置加载
+
+#### `assets/js/monitor/dom.js`
+
+维护前端安全 DOM 操作助手：
+
+- 安全设置文本
+- 安全设置 HTML
+- 安全设置 class
+- 安全设置样式
+
+#### `assets/js/monitor/renderers.js`
+
+维护可复用 UI 渲染器：
+
+- 市场卡片渲染
+- 价差卡片渲染
+- ATR 指标渲染
+- tick 表格渲染
 
 #### `assets/js/monitor/charts.js`
 
@@ -305,7 +342,47 @@ python server.py
 
 - 网页端: `http://127.0.0.1:8765/`
 
-### 5.3 小程序运行
+### 5.3 修改配置
+
+项目根目录提供统一配置文件：
+
+- `monitor.config.json`
+
+配置项包括：
+
+- 服务监听地址与端口
+- 快慢轮询周期
+- 预警阈值默认值
+- 前端轮询周期与本地文件模式回退端口
+
+示例：
+
+```json
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "polling": {
+    "fast_seconds": 3,
+    "slow_seconds": 60
+  },
+  "alerts": {
+    "tick_jump_threshold": 1.0,
+    "max_history": 200
+  },
+  "frontend": {
+    "default_api_host": "127.0.0.1",
+    "fallback_port": 8765,
+    "poll_ms": 1000,
+    "alert_poll_ms": 2000
+  }
+}
+```
+
+修改配置后重新启动服务即可生效。
+
+### 5.4 小程序运行
 
 小程序目录位于：
 
@@ -375,7 +452,33 @@ python server.py
 5. `http_server.py` 对外暴露 API
 6. 前端通过 `/api/all` 和 `/api/alerts` 轮询渲染页面
 
-## 8. 命名规范
+详细字段说明见：
+
+- `docs/data-models.md`
+
+## 8. 测试
+
+当前项目已包含基础单元测试与 smoke test，位于：
+
+- `tests/test_analytics.py`
+- `tests/test_market_hours.py`
+- `tests/test_smoke.py`
+
+执行方式：
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+当前覆盖内容：
+
+- 波动率计算
+- 聚合缓存构建
+- 交易时段判断
+- 配置文件可读性
+- HTTP 服务最小 smoke 校验
+
+## 9. 命名规范
 
 本项目当前采用以下命名规范。
 
@@ -417,7 +520,7 @@ python server.py
 - 页面 DOM id
 - 小程序页面路径和页面级数据结构
 
-## 9. 开发约定
+## 10. 开发约定
 
 ### 9.1 修改后端时
 
@@ -452,7 +555,7 @@ python server.py
 - 在入口模块中只做注册与调用
 - 复用 `Monitor` 命名空间或 `backend/` 模块边界
 
-## 10. 常见排障
+## 11. 常见排障
 
 ### 10.1 端口占用
 
@@ -492,7 +595,7 @@ pip install akshare
 - `index.html` 是否正确引用 `assets/js/monitor/*.js`
 - 浏览器是否缓存了旧静态资源，可尝试强制刷新
 
-## 11. 后续可继续优化的方向
+## 12. 后续可继续优化的方向
 
 - 为后端补充基础单元测试与 smoke test
 - 为前端补充更细粒度的 UI 模块拆分
@@ -500,7 +603,7 @@ pip install akshare
 - 增加配置文件而不是硬编码轮询周期和端口
 - 为小程序补一份独立 README
 
-## 12. 维护建议
+## 13. 维护建议
 
 如果后续继续演进项目，推荐坚持以下原则：
 

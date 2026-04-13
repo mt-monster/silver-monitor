@@ -1,0 +1,20 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8765
+  },
+  "polling": {
+    "fast_seconds": 3,
+    "slow_seconds": 60
+  },
+  "alerts": {
+    "tick_jump_threshold": 1.0,
+    "max_history": 200
+  },
+  "frontend": {
+    "default_api_host": "127.0.0.1",
+    "fallback_port": 8765,
+    "poll_ms": 1000,
+    "alert_poll_ms": 2000
+  }
+}
