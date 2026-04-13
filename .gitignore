@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / temp scripts
+test_api.py
+test_comex.py
+test_em.py
+check_huyin.py
+gen_icons.py
+*.log
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Node (if any)
+node_modules/

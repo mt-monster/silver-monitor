@@ -1,0 +1,117 @@
+<!-- pages/settings/settings.wxml -->
+<view class="page">
+
+  <!-- Server Config -->
+  <view class="section-header">
+    <text class="section-icon">🌐</text>
+    <text class="section-title">服务器配置</text>
+  </view>
+
+  <view class="card">
+    <view class="form-group">
+      <text class="form-label">服务器地址</text>
+      <input class="form-input" placeholder="例: http://192.168.1.100:8765" value="{{serverUrl}}" bindinput="onServerInput" />
+      <text class="form-hint">需先在电脑上启动 server.py，填入电脑的局域网 IP</text>
+    </view>
+
+    <view class="btn-row">
+      <view class="btn btn-secondary" bindtap="testConnection">
+        <text>测试连接</text>
+      </view>
+      <view class="btn btn-primary" bindtap="saveServer">
+        <text>保存</text>
+      </view>
+    </view>
+
+    <view class="status-line">
+      <text class="status-text">{{serverStatus}}</text>
+    </view>
+
+    <!-- Server Sources -->
+    <view class="sources-list" wx:if="{{serverSources.length > 0}}">
+      <text class="sources-title">可用数据源:</text>
+      <view class="source-tag" wx:for="{{serverSources}}" wx:key="id">
+        <text>{{item.name}}</text>
+        <text class="source-status {{item.status === 'ready' || item.status === 'configured' ? 'ok' : ''}}">{{item.status}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Alert Settings -->
+  <view class="section-header">
+    <text class="section-icon">🔔</text>
+    <text class="section-title">预警设置</text>
+  </view>
+
+  <view class="card">
+    <view class="setting-row">
+      <text class="setting-label">3-Tick 跳动阈值</text>
+      <picker mode="selector" range="{{thresholdOptions}}" range-key="" value="{{thresholdIndex}}" bindchange="onThresholdChange">
+        <view class="picker-value">
+          <text>{{threshold}}%</text>
+          <text class="picker-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="setting-row">
+      <text class="setting-label">轮询间隔</text>
+      <picker mode="selector" range="{{pollOptions}}" value="{{pollIndex}}" bindchange="onPollChange">
+        <view class="picker-value">
+          <text>{{pollInterval}}秒</text>
+          <text class="picker-arrow">›</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="setting-row">
+      <text class="setting-label">预警声音</text>
+      <view class="toggle {{soundOn ? 'on' : 'off'}}" bindtap="toggleSound">
+        <view class="toggle-dot"></view>
+      </view>
+    </view>
+
+    <view class="setting-row">
+      <text class="setting-label">震动提醒</text>
+      <view class="toggle {{vibrateOn ? 'on' : 'off'}}" bindtap="toggleVibrate">
+        <view class="toggle-dot"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Help -->
+  <view class="section-header">
+    <text class="section-icon">📖</text>
+    <text class="section-title">使用说明</text>
+  </view>
+
+  <view class="card">
+    <view class="help-item">
+      <text class="help-num">1</text>
+      <text class="help-text">在电脑上运行 <text class="code">python server.py</text> 启动行情服务</text>
+    </view>
+    <view class="help-item">
+      <text class="help-num">2</text>
+      <text class="help-text">确保手机和电脑在同一 WiFi 网络下</text>
+    </view>
+    <view class="help-item">
+      <text class="help-num">3</text>
+      <text class="help-text">在上方填写电脑的局域网 IP 地址（如 http://192.168.1.100:8765）</text>
+    </view>
+    <view class="help-item">
+      <text class="help-num">4</text>
+      <text class="help-text">点击"测试连接"确认可用后保存</text>
+    </view>
+
+    <view class="copy-btn" bindtap="copyStartCmd">
+      <text>📋 复制启动命令</text>
+    </view>
+  </view>
+
+  <!-- About -->
+  <view class="about">
+    <text class="about-text">银期货行情监控 v1.0</text>
+    <text class="about-sub">数据源: akshare + Stooq + akshare-XAG</text>
+  </view>
+
+</view>

@@ -1,0 +1,132 @@
+<!-- pages/index/index.wxml -->
+<view class="page">
+
+  <!-- Header -->
+  <view class="header">
+    <view class="header-left">
+      <text class="logo">🥈 银行情监控</text>
+    </view>
+    <view class="header-right">
+      <text class="update-time">{{lastUpdate}}</text>
+      <view class="refresh-btn {{loading ? 'spinning' : ''}}" bindtap="onRefresh">
+        <text class="refresh-icon">⟳</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Data Source Badge -->
+  <view class="source-bar" wx:if="{{activeSources.length > 0}}">
+    <view class="live-dot"></view>
+    <text class="source-text">实时 · {{activeSources.join(' + ')}}</text>
+  </view>
+  <view class="source-bar" wx:else>
+    <text class="source-text demo">演示模式（需配置服务器地址）</text>
+  </view>
+
+  <!-- Price Cards -->
+  <view class="price-row">
+    <!-- 沪银 -->
+    <view class="price-card card-hu">
+      <view class="card-header">
+        <text class="card-label">沪银主力</text>
+        <view class="tag tag-hu">AG</view>
+      </view>
+      <view class="price-main">{{hu.price}}</view>
+      <view class="price-unit">元 / 千克</view>
+      <view class="price-change">
+        <text class="{{hu.change >= 0 ? 'text-red' : 'text-green'}}">{{hu.change}}</text>
+        <text class="{{hu.changePct >= 0 ? 'text-red' : 'text-green'}} chg-pct">{{hu.changePct}}</text>
+      </view>
+      <view class="mini-stats">
+        <view class="mini-stat"><text class="stat-label">开</text><text class="stat-val">{{hu.open}}</text></view>
+        <view class="mini-stat"><text class="stat-label">高</text><text class="stat-val text-red">{{hu.high}}</text></view>
+        <view class="mini-stat"><text class="stat-label">低</text><text class="stat-val text-green">{{hu.low}}</text></view>
+      </view>
+    </view>
+
+    <!-- COMEX -->
+    <view class="price-card card-comex">
+      <view class="card-header">
+        <text class="card-label">COMEX 银</text>
+        <view class="tag tag-comex">XAG</view>
+      </view>
+      <view class="price-main">{{comex.price}}</view>
+      <view class="price-unit">美元 / 盎司</view>
+      <view class="price-change">
+        <text class="{{comex.change >= 0 ? 'text-red' : 'text-green'}}">{{comex.change}}</text>
+        <text class="{{comex.changePct >= 0 ? 'text-red' : 'text-green'}} chg-pct">{{comex.changePct}}</text>
+      </view>
+      <view class="mini-stats">
+        <view class="mini-stat"><text class="stat-label">开</text><text class="stat-val">{{comex.open}}</text></view>
+        <view class="mini-stat"><text class="stat-label">高</text><text class="stat-val text-red">{{comex.high}}</text></view>
+        <view class="mini-stat"><text class="stat-label">低</text><text class="stat-val text-green">{{comex.low}}</text></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Spread Card -->
+  <view class="spread-card">
+    <view class="spread-row">
+      <view class="spread-item">
+        <text class="spread-label">比价</text>
+        <text class="spread-value text-yellow">{{spread.ratio}}</text>
+      </view>
+      <view class="spread-item">
+        <text class="spread-label">价差</text>
+        <text class="spread-value {{spread.statusType === 'up' ? 'text-red' : spread.statusType === 'dn' ? 'text-green' : 'text-yellow'}}">{{spread.cnySpread}} 元</text>
+      </view>
+      <view class="spread-item">
+        <text class="spread-label">状态</text>
+        <view class="status-chip {{spread.statusType}}">{{spread.status}}</view>
+      </view>
+      <view class="spread-item">
+        <text class="spread-label">USD/CNY</text>
+        <text class="spread-value">{{spread.usdCny}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Volatility Section -->
+  <view class="section-title">
+    <text class="section-text">波动率指标</text>
+  </view>
+  <view class="vol-row">
+    <view class="vol-card">
+      <view class="vol-top">
+        <text class="vol-label">沪银 HV20</text>
+        <text class="vol-value text-hu">{{hv.hu}}</text>
+      </view>
+      <view class="vol-bar-wrap">
+        <view class="vol-bar bar-hu" style="width: {{hv.hu === '--' ? '0' : (parseFloat(hv.hu) / 40 * 100) + '%'}}"></view>
+      </view>
+    </view>
+    <view class="vol-card">
+      <view class="vol-top">
+        <text class="vol-label">COMEX HV20</text>
+        <text class="vol-value text-comex">{{hv.comex}}</text>
+      </view>
+      <view class="vol-bar-wrap">
+        <view class="vol-bar bar-comex" style="width: {{hv.comex === '--' ? '0' : (parseFloat(hv.comex) / 60 * 100) + '%'}}"></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- Alert Quick Entry -->
+  <view class="alert-entry" bindtap="goAlerts">
+    <view class="alert-entry-left">
+      <text class="alert-icon">🔔</text>
+      <text class="alert-entry-text">3-Tick 预警监控</text>
+    </view>
+    <view class="alert-entry-right">
+      <text class="alert-threshold">阈值 ≥1%</text>
+      <text class="arrow">›</text>
+    </view>
+  </view>
+
+  <!-- Info Notice -->
+  <view class="info-notice">
+    <text class="info-icon">ℹ️</text>
+    <text class="info-text">数据源：akshare（沪银）+ Stooq（COMEX）+ akshare（伦敦银），每5秒自动刷新</text>
+  </view>
+
+</view>

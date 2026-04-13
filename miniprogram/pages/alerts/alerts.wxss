@@ -1,0 +1,239 @@
+/* pages/alerts/alerts.wxss */
+.page {
+  background: #0d1117;
+  min-height: 100vh;
+  padding-bottom: 40rpx;
+}
+
+/* Stats Bar */
+.stats-bar {
+  display: flex;
+  background: #161b22;
+  border-bottom: 1rpx solid #30363d;
+  padding: 28rpx 16rpx;
+}
+.stat-item {
+  flex: 1;
+  text-align: center;
+}
+.stat-num {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #e6edf3;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label {
+  font-size: 20rpx;
+  color: #8b949e;
+  margin-top: 4rpx;
+  display: block;
+}
+
+.text-red { color: #f85149; }
+.text-green { color: #3fb950; }
+.text-yellow { color: #d29922; }
+
+/* Controls */
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 28rpx;
+}
+.ctrl-right {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.threshold-badge {
+  background: rgba(248,81,73,0.1);
+  border: 1rpx solid rgba(248,81,73,0.25);
+  border-radius: 16rpx;
+  padding: 8rpx 20rpx;
+}
+.threshold-text {
+  font-size: 22rpx;
+  color: #f85149;
+  font-weight: 600;
+}
+.sound-btn, .refresh-btn-sm {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  border: 1rpx solid #30363d;
+  background: #161b22;
+}
+.sound-btn.on {
+  border-color: rgba(63,185,80,0.3);
+  background: rgba(63,185,80,0.08);
+}
+.refresh-btn-sm {
+  color: #58a6ff;
+}
+
+/* Section Header */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 28rpx 12rpx;
+}
+.section-title {
+  font-size: 24rpx;
+  color: #8b949e;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+}
+.clear-btn {
+  padding: 4rpx 16rpx;
+  border-radius: 8rpx;
+  background: rgba(248,81,73,0.08);
+  border: 1rpx solid rgba(248,81,73,0.2);
+}
+.clear-text {
+  font-size: 20rpx;
+  color: #f85149;
+}
+
+/* Alert List */
+.alert-list {
+  padding: 0 24rpx;
+}
+.alert-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #161b22;
+  border: 1rpx solid #30363d;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 12rpx;
+  border-left: 6rpx solid transparent;
+}
+.alert-item.up {
+  border-left-color: #f85149;
+}
+.alert-item.dn {
+  border-left-color: #3fb950;
+}
+.alert-left {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.alert-dir {
+  font-size: 36rpx;
+}
+.alert-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.alert-pct {
+  font-size: 30rpx;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.alert-time {
+  font-size: 20rpx;
+  color: #8b949e;
+}
+.alert-right {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+.level-badge {
+  font-size: 18rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 8rpx;
+  font-weight: 600;
+}
+.level-LOW {
+  background: rgba(210,153,34,0.12);
+  color: #d29922;
+  border: 1rpx solid rgba(210,153,34,0.25);
+}
+.level-MEDIUM {
+  background: rgba(255,166,87,0.12);
+  color: #ffa657;
+  border: 1rpx solid rgba(255,166,87,0.25);
+}
+.level-HIGH {
+  background: rgba(248,81,73,0.12);
+  color: #f85149;
+  border: 1rpx solid rgba(248,81,73,0.25);
+}
+.alert-price {
+  font-size: 24rpx;
+  color: #8b949e;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 80rpx 40rpx;
+}
+.empty-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+.empty-text {
+  font-size: 30rpx;
+  color: #e6edf3;
+  font-weight: 600;
+  margin-bottom: 12rpx;
+}
+.empty-sub {
+  font-size: 22rpx;
+  color: #8b949e;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* Connection Status */
+.conn-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  padding: 16rpx;
+  margin: 24rpx 24rpx 0;
+  border-radius: 12rpx;
+}
+.conn-status.ok {
+  background: rgba(63,185,80,0.06);
+  border: 1rpx solid rgba(63,185,80,0.15);
+}
+.conn-status.demo {
+  background: rgba(210,153,34,0.06);
+  border: 1rpx solid rgba(210,153,34,0.15);
+}
+.conn-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+}
+.conn-status.ok .conn-dot {
+  background: #3fb950;
+}
+.conn-status.demo .conn-dot {
+  background: #d29922;
+}
+.conn-text {
+  font-size: 20rpx;
+}
+.conn-status.ok .conn-text {
+  color: #3fb950;
+}
+.conn-status.demo .conn-text {
+  color: #d29922;
+}

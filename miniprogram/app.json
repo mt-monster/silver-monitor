@@ -1,0 +1,41 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/alerts/alerts",
+    "pages/settings/settings"
+  ],
+  "window": {
+    "backgroundTextStyle": "dark",
+    "navigationBarBackgroundColor": "#161b22",
+    "navigationBarTitleText": "银行情监控",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0d1117"
+  },
+  "tabBar": {
+    "color": "#8b949e",
+    "selectedColor": "#e6edf3",
+    "backgroundColor": "#161b22",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "行情",
+        "iconPath": "images/chart.png",
+        "selectedIconPath": "images/chart_active.png"
+      },
+      {
+        "pagePath": "pages/alerts/alerts",
+        "text": "预警",
+        "iconPath": "images/alert.png",
+        "selectedIconPath": "images/alert_active.png"
+      },
+      {
+        "pagePath": "pages/settings/settings",
+        "text": "设置",
+        "iconPath": "images/settings.png",
+        "selectedIconPath": "images/settings_active.png"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json"
+}

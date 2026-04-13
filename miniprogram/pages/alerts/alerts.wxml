@@ -1,0 +1,77 @@
+<!-- pages/alerts/alerts.wxml -->
+<view class="page">
+
+  <!-- Header Stats -->
+  <view class="stats-bar">
+    <view class="stat-item">
+      <text class="stat-num text-red">{{stats.upCount}}</text>
+      <text class="stat-label">急涨</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-num text-green">{{stats.dnCount}}</text>
+      <text class="stat-label">急跌</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-num text-yellow">{{stats.maxPct.toFixed(2)}}%</text>
+      <text class="stat-label">最大跳动</text>
+    </view>
+    <view class="stat-item">
+      <text class="stat-num">{{stats.totalChecks}}</text>
+      <text class="stat-label">检测次数</text>
+    </view>
+  </view>
+
+  <!-- Controls -->
+  <view class="controls">
+    <view class="ctrl-left">
+      <view class="threshold-badge">
+        <text class="threshold-text">3-Tick 阈值: {{threshold}}%</text>
+      </view>
+    </view>
+    <view class="ctrl-right">
+      <view class="sound-btn {{soundOn ? 'on' : 'off'}}" bindtap="toggleSound">
+        <text>{{soundOn ? '🔔' : '🔕'}}</text>
+      </view>
+      <view class="refresh-btn-sm" bindtap="onRefresh">
+        <text>⟳</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Alert List -->
+  <view class="section-header">
+    <text class="section-title">预警记录</text>
+    <view class="clear-btn" bindtap="clearAlerts" wx:if="{{alerts.length > 0}}">
+      <text class="clear-text">清空</text>
+    </view>
+  </view>
+
+  <view class="alert-list" wx:if="{{alerts.length > 0}}">
+    <view class="alert-item {{item.direction}}" wx:for="{{alerts}}" wx:key="time">
+      <view class="alert-left">
+        <text class="alert-dir">{{item.dirIcon}}</text>
+        <view class="alert-info">
+          <text class="alert-pct {{item.direction === 'up' ? 'text-red' : 'text-green'}}">{{item.pctStr}}</text>
+          <text class="alert-time">{{item.time}}</text>
+        </view>
+      </view>
+      <view class="alert-right">
+        <view class="level-badge level-{{item.level}}">{{item.level}}</view>
+        <text class="alert-price">{{item.price}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="empty-state" wx:else>
+    <text class="empty-icon">📊</text>
+    <text class="empty-text">暂无预警记录</text>
+    <text class="empty-sub">当 COMEX 3个Tick内价格变动 ≥ {{threshold}}% 时触发</text>
+  </view>
+
+  <!-- Connection Status -->
+  <view class="conn-status {{connected ? 'ok' : 'demo'}}">
+    <view class="conn-dot"></view>
+    <text class="conn-text">{{connected ? '已连接服务器' : '演示模式 — 需配置服务器地址'}}</text>
+  </view>
+
+</view>
