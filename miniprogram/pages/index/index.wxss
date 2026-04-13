@@ -79,6 +79,34 @@
   color: #d29922;
 }
 
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  gap: 12rpx;
+  margin: 20rpx 24rpx 0;
+  padding: 8rpx;
+  background: #161b22;
+  border: 1rpx solid #30363d;
+  border-radius: 18rpx;
+}
+.tab-btn {
+  flex: 1;
+  padding: 18rpx 0;
+  text-align: center;
+  border-radius: 14rpx;
+  color: #8b949e;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+.active-silver {
+  background: linear-gradient(135deg, rgba(248,81,73,0.12), rgba(78,205,196,0.10));
+  color: #e6edf3;
+}
+.active-gold {
+  background: linear-gradient(135deg, rgba(210,153,34,0.18), rgba(240,136,62,0.12));
+  color: #ffe082;
+}
+
 /* Price Cards */
 .price-row {
   display: flex;
@@ -108,6 +136,20 @@
   height: 6rpx;
   background: linear-gradient(90deg, #4ecdc4, #44b8b3);
 }
+.card-au::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 6rpx;
+  background: linear-gradient(90deg, #f7d774, #d29922);
+}
+.card-gold-comex::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 6rpx;
+  background: linear-gradient(90deg, #f5a15d, #f0883e);
+}
 .card-header {
   display: flex;
   align-items: center;
@@ -132,6 +174,14 @@
 .tag-comex {
   background: rgba(78,205,196,0.15);
   color: #4ecdc4;
+}
+.tag-au {
+  background: rgba(210,153,34,0.18);
+  color: #f7d774;
+}
+.tag-gold-comex {
+  background: rgba(240,136,62,0.18);
+  color: #f5a15d;
 }
 .price-main {
   font-size: 52rpx;
@@ -161,6 +211,8 @@
 .text-yellow { color: #d29922; }
 .text-hu { color: #ff6b6b; }
 .text-comex { color: #4ecdc4; }
+.text-au { color: #f7d774; }
+.text-gold-comex { color: #f5a15d; }
 
 .mini-stats {
   display: flex;
@@ -296,6 +348,8 @@
 }
 .bar-hu { background: #ff6b6b; }
 .bar-comex { background: #4ecdc4; }
+.bar-au { background: #f7d774; }
+.bar-gold-comex { background: #f5a15d; }
 
 /* Alert Entry */
 .alert-entry {

@@ -2,7 +2,7 @@
   "usingComponents": {
     "ec-canvas": "../../components/ec-canvas/ec-canvas"
   },
-  "navigationBarTitleText": "银行情监控",
+  "navigationBarTitleText": "贵金属行情监控",
   "enablePullDownRefresh": true,
   "backgroundTextStyle": "dark"
 }

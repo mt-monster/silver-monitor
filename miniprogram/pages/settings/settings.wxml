@@ -110,8 +110,8 @@
 
   <!-- About -->
   <view class="about">
-    <text class="about-text">银期货行情监控 v1.0</text>
-    <text class="about-sub">数据源: akshare + Stooq + akshare-XAG</text>
+    <text class="about-text">贵金属行情监控 v1.0</text>
+    <text class="about-sub">数据源: Sina + akshare</text>
   </view>
 
 </view>
