@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>银行情实时监控 | Silver Monitor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -76,7 +77,13 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .alert-section .card{padding:14px}
 .alert-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .alert-header h3{font-size:13px;color:var(--text2)}
-.alert-threshold{font-size:10px;color:var(--orange);background:rgba(240,136,62,.1);padding:2px 8px;border-radius:4px}
+.alert-threshold{font-size:10px;color:var(--orange);background:rgba(240,136,62,.1);padding:2px 8px;border-radius:4px;cursor:pointer;position:relative;user-select:none}
+.alert-threshold:hover{background:rgba(240,136,62,.2)}
+.threshold-menu{display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 0;z-index:100;min-width:120px;box-shadow:0 4px 12px rgba(0,0,0,.4)}
+.threshold-menu.open{display:block}
+.threshold-menu .th-item{padding:5px 14px;font-size:11px;color:var(--text);cursor:pointer;white-space:nowrap}
+.threshold-menu .th-item:hover{background:var(--bg3)}
+.threshold-menu .th-item.active{color:var(--orange);font-weight:700}
 .alert-stats-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
 .alert-stat-card{background:var(--bg0);border:1px solid var(--border);border-radius:8px;padding:10px}
 .alert-stat-card .label{font-size:10px;color:var(--text3);margin-bottom:2px}
@@ -125,6 +132,11 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .atr-bar-fill{height:100%;border-radius:2px;transition:width .5s}
 .atr-bar-fill.hu{background:var(--red)}.atr-bar-fill.comex{background:var(--cyan)}
 
+/* Real-time chart badges */
+.rt-badge{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(63,185,80,.15);color:var(--green);margin-left:6px;animation:pulse 1.5s infinite}
+.rt-count{font-size:9px;color:var(--text3);margin-left:4px}
+.hist-badge{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(88,166,255,.1);color:var(--blue);margin-left:6px}
+
 /* Responsive */
 @media(max-width:900px){
   .price-row,.chart-row,.vol-row,.atr-row,.tick-dual-row,.alert-stats-row{grid-template-columns:1fr}
@@ -165,7 +177,7 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
       <div class="card-source" id="huSource">--</div>
     </div>
     <div class="card" id="coCard">
-      <div class="card-label">🟢 COMEX银 <span class="badge">SI=F</span></div>
+      <div class="card-label">🟢 COMEX银 ($/oz) <span class="badge">SI=F</span></div>
       <div class="price-main" id="coPrice">--</div>
       <div class="price-change" id="coChange">--</div>
       <div class="price-sub" id="coSub"></div>
@@ -179,14 +191,26 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
     </div>
   </div>
 
-  <!-- Price Charts -->
+  <!-- Real-time Price Charts (from fast poll, no history dependency) -->
   <div class="chart-row">
     <div class="chart-card">
-      <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银价格走势 (元/kg)</div>
+      <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银实时走势 <span class="rt-badge">LIVE</span> <span class="rt-count" id="huRtCount">0点</span></div>
+      <div class="chart-wrap"><canvas id="huRtChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title"><div class="dot" style="background:var(--cyan)"></div>COMEX银实时走势 ($/oz) <span class="rt-badge">LIVE</span> <span class="rt-count" id="coRtCount">0点</span></div>
+      <div class="chart-wrap"><canvas id="coRtChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Historical Price Charts -->
+  <div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银历史走势 (元/kg) <span class="hist-badge">HISTORY</span></div>
       <div class="chart-wrap"><canvas id="huChart"></canvas></div>
     </div>
     <div class="chart-card">
-      <div class="chart-title"><div class="dot" style="background:var(--cyan)"></div>COMEX银价格走势 (换算元/kg)</div>
+      <div class="chart-title"><div class="dot" style="background:var(--cyan)"></div>COMEX银历史走势 ($/oz) <span class="hist-badge">HISTORY</span></div>
       <div class="chart-wrap"><canvas id="coChart"></canvas></div>
     </div>
   </div>
@@ -222,7 +246,9 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
     <div class="card">
       <div class="alert-header">
         <h3>🔔 3-Tick 跳动预警</h3>
-        <span class="alert-threshold" id="alertThresholdBadge">阈值: ≥1.0%</span>
+        <span class="alert-threshold" id="alertThresholdBadge" onclick="toggleThresholdMenu(event)">阈值: ≥1.0%
+          <div class="threshold-menu" id="thresholdMenu"></div>
+        </span>
       </div>
       <div class="alert-stats-row">
         <div class="alert-stat-card">
@@ -293,6 +319,7 @@ const POLL_MS = 1000;        // 前端轮询间隔（毫秒）
 const ALERT_POLL_MS = 2000;  // 预警轮询间隔
 const MAX_TICK_RECORDS = 50; // 每列最大记录数
 const MAX_CHART_POINTS = 200;
+const MAX_RT_POINTS = 300;   // 实时图最大点数（约 5 分钟 @1s）
 
 // ══════════════════════════════════════════════════════════
 // 全局状态
@@ -304,6 +331,8 @@ const app = {
   lastCoPrice: null,
   huLivePoints: [],  // 实时追加的走势点
   coLivePoints: [],
+  huRtPoints: [],    // 实时图累积点（独立于 history）
+  coRtPoints: [],
   lastAlertId: null,
   audioCtx: null,
 };
@@ -313,7 +342,11 @@ const app = {
 // ══════════════════════════════════════════════════════════
 function getApiBase() {
   const h = window.location.hostname;
-  if (h === 'localhost' || h === '[::1]') {
+  // 如果是 file:// 协议打开，直接指向本地 127.0.0.1:8765
+  if (!h || window.location.protocol === 'file:') {
+    return 'http://127.0.0.1:8765';
+  }
+  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') {
     return window.location.protocol + '//127.0.0.1:' + window.location.port;
   }
   return '';
@@ -390,6 +423,69 @@ const huVolChart = new Chart(document.getElementById('huVolChart').getContext('2
   },
 });
 
+// 沪银实时图
+const rtChartOpts = {
+  ...chartDefaults,
+  scales: {
+    x: {
+      type: 'time',
+      time: { displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm' } },
+      grid: { color: 'rgba(48,54,61,0.3)' },
+      ticks: { maxTicksLimit: 8, font: { size: 9 }, color: '#484f58' },
+    },
+    y: {
+      grid: { color: 'rgba(48,54,61,0.3)' },
+      ticks: { font: { size: 10 }, color: '#8b949e' },
+    },
+  },
+};
+const huRtChart = new Chart(document.getElementById('huRtChart').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [{
+    label: '沪银实时', data: [],
+    borderColor: '#f85149', backgroundColor: 'rgba(248,81,73,0.08)',
+    borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true,
+  }]},
+  options: {
+    ...rtChartOpts,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1c2330', borderColor: '#30363d', borderWidth: 1,
+        titleFont: { size: 10 }, bodyFont: { size: 11 },
+        callbacks: {
+          label: ctx => '沪银: ' + ctx.parsed.y.toFixed(1) + ' 元/kg',
+          title: items => new Date(items[0].parsed.x).toLocaleTimeString('zh-CN', { hour12: false }),
+        },
+      },
+    },
+  },
+});
+
+// COMEX实时图
+const coRtChart = new Chart(document.getElementById('coRtChart').getContext('2d'), {
+  type: 'line',
+  data: { datasets: [{
+    label: 'COMEX实时', data: [],
+    borderColor: '#39d2c0', backgroundColor: 'rgba(57,210,192,0.08)',
+    borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true,
+  }]},
+  options: {
+    ...rtChartOpts,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1c2330', borderColor: '#30363d', borderWidth: 1,
+        titleFont: { size: 10 }, bodyFont: { size: 11 },
+        callbacks: {
+          label: ctx => 'COMEX: $' + ctx.parsed.y.toFixed(3) + '/oz',
+          title: items => new Date(items[0].parsed.x).toLocaleTimeString('zh-CN', { hour12: false }),
+        },
+      },
+    },
+  },
+});
+
 // COMEX波动率图
 const coVolChart = new Chart(document.getElementById('coVolChart').getContext('2d'), {
   type: 'line',
@@ -418,7 +514,7 @@ async function fetchData() {
     const data = await resp.json();
     const ms = (performance.now() - t0).toFixed(0);
     const dbg = document.getElementById('debugInfo');
-    if (dbg) dbg.textContent = ms + 'ms | hu=' + (data.huyin?.price||'?') + ' co=' + (data.comex?.price||'?');
+    if (dbg) dbg.textContent = ms + 'ms | hu=¥' + (data.huyin?.price||'?') + ' co=$' + (data.comex?.price||'?');
     // 连接成功，绿点
     document.getElementById('liveDot').style.background = '#3fb950';
     return data;
@@ -453,43 +549,67 @@ function updatePriceCards(data) {
   // 沪银
   if (hu && !hu.error) {
     const el = document.getElementById('huPrice');
-    el.textContent = (hu.price || 0).toLocaleString('zh-CN', {maximumFractionDigits: 1});
-    el.className = 'price-main ' + (hu.change >= 0 ? 'up' : 'down');
+    
+    // 检查市场是否休盘
+    if (hu.closed) {
+      // 显示休市提示而不是价格
+      el.textContent = '—';
+      el.className = 'price-main';
+      document.getElementById('huChange').textContent = hu.status_desc || '休盘中';
+      document.getElementById('huChange').className = 'price-change';
+      document.getElementById('huSub').innerHTML = '';
+      document.getElementById('huSource').textContent = '休市';
+    } else {
+      el.textContent = (hu.price || 0).toLocaleString('zh-CN', {maximumFractionDigits: 1});
+      el.className = 'price-main ' + (hu.change >= 0 ? 'up' : 'down');
 
-    const chg = document.getElementById('huChange');
-    const sign = hu.change >= 0 ? '+' : '';
-    chg.textContent = sign + (hu.change||0).toFixed(1) + '  ' + sign + (hu.changePercent||0).toFixed(2) + '%';
-    chg.className = 'price-change ' + (hu.change >= 0 ? 'up' : 'down');
+      const chg = document.getElementById('huChange');
+      const sign = hu.change >= 0 ? '+' : '';
+      chg.textContent = sign + (hu.change||0).toFixed(1) + '  ' + sign + (hu.changePercent||0).toFixed(2) + '%';
+      chg.className = 'price-change ' + (hu.change >= 0 ? 'up' : 'down');
 
-    const sub = document.getElementById('huSub');
-    sub.innerHTML = '';
-    if (hu.open) sub.innerHTML += '<span>开 ' + hu.open + '</span>';
-    if (hu.high) sub.innerHTML += '<span>高 ' + hu.high + '</span>';
-    if (hu.low) sub.innerHTML += '<span>低 ' + hu.low + '</span>';
+      const sub = document.getElementById('huSub');
+      sub.innerHTML = '';
+      if (hu.open) sub.innerHTML += '<span>开 ' + hu.open + '</span>';
+      if (hu.high) sub.innerHTML += '<span>高 ' + hu.high + '</span>';
+      if (hu.low) sub.innerHTML += '<span>低 ' + hu.low + '</span>';
 
-    document.getElementById('huSource').textContent = hu.source || '--';
+      document.getElementById('huSource').textContent = hu.source || '--';
+    }
   }
 
   // COMEX
   if (co && !co.error) {
     const el = document.getElementById('coPrice');
-    el.textContent = (co.price || 0).toLocaleString('zh-CN', {maximumFractionDigits: 1});
-    el.className = 'price-main ' + (co.change >= 0 ? 'up' : 'down');
+    
+    // 检查市场是否休盘
+    if (co.closed) {
+      // 显示休市提示而不是价格
+      el.textContent = '—';
+      el.className = 'price-main';
+      document.getElementById('coChange').textContent = co.status_desc || '休盘中';
+      document.getElementById('coChange').className = 'price-change';
+      document.getElementById('coSub').innerHTML = '';
+      document.getElementById('coSource').textContent = '休市';
+    } else {
+      el.textContent = '$' + (co.price || 0).toFixed(3);
+      el.className = 'price-main ' + (co.change >= 0 ? 'up' : 'down');
 
-    const chg = document.getElementById('coChange');
-    const usd = co.priceUsd ? ' ($' + co.priceUsd.toFixed(2) + '/oz)' : '';
-    const sign = co.change >= 0 ? '+' : '';
-    chg.textContent = sign + (co.change||0).toFixed(1) + '  ' + sign + (co.changePercent||0).toFixed(2) + '%' + usd;
-    chg.className = 'price-change ' + (co.change >= 0 ? 'up' : 'down');
+      const chg = document.getElementById('coChange');
+      const sign = co.change >= 0 ? '+' : '';
+      chg.textContent = sign + (co.change||0).toFixed(3) + '  ' + sign + (co.changePercent||0).toFixed(2) + '%';
+      chg.className = 'price-change ' + (co.change >= 0 ? 'up' : 'down');
 
-    const sub = document.getElementById('coSub');
-    sub.innerHTML = '';
-    if (co.open) sub.innerHTML += '<span>开 ' + co.open.toFixed(1) + '</span>';
-    if (co.high) sub.innerHTML += '<span>高 ' + co.high.toFixed(1) + '</span>';
-    if (co.low) sub.innerHTML += '<span>低 ' + co.low.toFixed(1) + '</span>';
-    if (co.usdCny) sub.innerHTML += '<span>汇率 ' + co.usdCny.toFixed(4) + '</span>';
+      const sub = document.getElementById('coSub');
+      sub.innerHTML = '';
+      if (co.open) sub.innerHTML += '<span>开 $' + co.open.toFixed(3) + '</span>';
+      if (co.high) sub.innerHTML += '<span>高 $' + co.high.toFixed(3) + '</span>';
+      if (co.low) sub.innerHTML += '<span>低 $' + co.low.toFixed(3) + '</span>';
+      if (co.priceCny) sub.innerHTML += '<span>≈¥' + co.priceCny.toFixed(0) + '/kg</span>';
+      if (co.usdCny) sub.innerHTML += '<span>汇率 ' + co.usdCny.toFixed(4) + '</span>';
 
-    document.getElementById('coSource').textContent = co.source || '--';
+      document.getElementById('coSource').textContent = co.source || '--';
+    }
   }
 
   // 价差
@@ -503,6 +623,47 @@ function updatePriceCards(data) {
   }
 }
 
+function updateRtCharts(data) {
+  const hu = data.huyin;
+  const co = data.comex;
+  const now = Date.now();
+
+  // DEBUG: 仅前 5 次输出
+  if (!window._rtDbg) window._rtDbg = 0;
+  if (window._rtDbg < 5) {
+    console.log('[RT] hu:', hu ? {price: hu.price, error: hu.error, closed: hu.closed, ts: hu.timestamp} : 'null',
+                'co:', co ? {price: co.price, error: co.error, closed: co.closed, ts: co.timestamp} : 'null',
+                'huPts:', app.huRtPoints.length, 'coPts:', app.coRtPoints.length);
+    window._rtDbg++;
+  }
+
+  // 沪银实时图
+  if (hu && !hu.error && !hu.closed && hu.price > 0) {
+    const lastRtTs = app.huRtPoints.length > 0 ? app.huRtPoints[app.huRtPoints.length - 1].x : 0;
+    const ts = hu.timestamp || now;
+    if (ts > lastRtTs) {
+      app.huRtPoints.push({ x: ts, y: hu.price });
+      if (app.huRtPoints.length > MAX_RT_POINTS) app.huRtPoints.shift();
+    }
+    huRtChart.data.datasets[0].data = app.huRtPoints;
+    huRtChart.update('none');
+    document.getElementById('huRtCount').textContent = app.huRtPoints.length + '点';
+  }
+
+  // COMEX实时图
+  if (co && !co.error && !co.closed && co.price > 0) {
+    const lastRtTs = app.coRtPoints.length > 0 ? app.coRtPoints[app.coRtPoints.length - 1].x : 0;
+    const ts = co.timestamp || now;
+    if (ts > lastRtTs) {
+      app.coRtPoints.push({ x: ts, y: co.price });
+      if (app.coRtPoints.length > MAX_RT_POINTS) app.coRtPoints.shift();
+    }
+    coRtChart.data.datasets[0].data = app.coRtPoints;
+    coRtChart.update('none');
+    document.getElementById('coRtCount').textContent = app.coRtPoints.length + '点';
+  }
+}
+
 function updateCharts(data) {
   const hu = data.huyin;
   const co = data.comex;
@@ -511,15 +672,17 @@ function updateCharts(data) {
   // 沪银走势
   if (hu && !hu.error && hu.history && hu.history.length > 0) {
     let pts = hu.history.slice(-MAX_CHART_POINTS);
+    // 转换为 Chart.js 期望的格式 (x 而不是 t)
+    pts = pts.map(p => ({ x: p.t, y: p.y }));
     // 追加实时点
     if (hu.price && hu.timestamp) {
-      const lastHistTs = pts.length > 0 ? pts[pts.length - 1].t : 0;
+      const lastHistTs = hu.history.length > 0 ? hu.history[hu.history.length - 1].t : 0;
       if (hu.timestamp > lastHistTs) {
-        app.huLivePoints.push({ t: hu.timestamp, y: hu.price });
+        app.huLivePoints.push({ x: hu.timestamp, y: hu.price });
         if (app.huLivePoints.length > 60) app.huLivePoints.shift();
       }
       // 合并历史 + 实时
-      const liveAfterHist = app.huLivePoints.filter(p => p.t > lastHistTs);
+      const liveAfterHist = app.huLivePoints.filter(p => p.x > lastHistTs);
       pts = pts.concat(liveAfterHist);
     }
     huChart.data.datasets[0].data = pts;
@@ -529,13 +692,15 @@ function updateCharts(data) {
   // COMEX走势
   if (co && !co.error && co.history && co.history.length > 0) {
     let pts = co.history.slice(-MAX_CHART_POINTS);
+    // 转换为 Chart.js 期望的格式 (x 而不是 t)
+    pts = pts.map(p => ({ x: p.t, y: p.y }));
     if (co.price && co.timestamp) {
-      const lastHistTs = pts.length > 0 ? pts[pts.length - 1].t : 0;
+      const lastHistTs = co.history.length > 0 ? co.history[co.history.length - 1].t : 0;
       if (co.timestamp > lastHistTs) {
-        app.coLivePoints.push({ t: co.timestamp, y: co.price });
+        app.coLivePoints.push({ x: co.timestamp, y: co.price });
         if (app.coLivePoints.length > 60) app.coLivePoints.shift();
       }
-      const liveAfterHist = app.coLivePoints.filter(p => p.t > lastHistTs);
+      const liveAfterHist = app.coLivePoints.filter(p => p.x > lastHistTs);
       pts = pts.concat(liveAfterHist);
     }
     coChart.data.datasets[0].data = pts;
@@ -545,11 +710,13 @@ function updateCharts(data) {
   // 波动率
   if (hv) {
     if (hv.hu && hv.hu.length > 0) {
-      huVolChart.data.datasets[0].data = hv.hu;
+      const hvHuData = hv.hu.map(p => ({ x: p.t, y: p.y }));
+      huVolChart.data.datasets[0].data = hvHuData;
       huVolChart.update('none');
     }
     if (hv.comex && hv.comex.length > 0) {
-      coVolChart.data.datasets[0].data = hv.comex;
+      const hvComexData = hv.comex.map(p => ({ x: p.t, y: p.y }));
+      coVolChart.data.datasets[0].data = hvComexData;
       coVolChart.update('none');
     }
   }
@@ -664,7 +831,9 @@ function updateAlerts(alertData) {
   renderTickRing('coTickRing', alertData.comexTickRing || [], '元/kg');
 
   // 阈值 badge
-  document.getElementById('alertThresholdBadge').textContent = '阈值: ≥' + (alertData.threshold || 1.0) + '%';
+  const curTh = alertData.threshold || 1.0;
+  document.getElementById('alertThresholdBadge').childNodes[0].textContent = '阈值: ≥' + curTh + '% ▾';
+  if (!window._thInited) { buildThresholdMenu(curTh); window._thInited = true; }
 
   // 新预警检测 → 弹横幅 + 声音
   const alerts = alertData.alerts || [];
@@ -742,6 +911,46 @@ function playAlertSound(isSurge) {
 }
 
 // ══════════════════════════════════════════════════════════
+// 阈值配置
+// ══════════════════════════════════════════════════════════
+function buildThresholdMenu(current) {
+  const menu = document.getElementById('thresholdMenu');
+  menu.innerHTML = '';
+  [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].forEach(v => {
+    const d = document.createElement('div');
+    d.className = 'th-item' + (v === current ? ' active' : '');
+    d.textContent = '≥ ' + v + '%';
+    d.onclick = e => { e.stopPropagation(); setThreshold(v); };
+    menu.appendChild(d);
+  });
+}
+
+function toggleThresholdMenu(e) {
+  e.stopPropagation();
+  document.getElementById('thresholdMenu').classList.toggle('open');
+}
+
+document.addEventListener('click', () => {
+  document.getElementById('thresholdMenu').classList.remove('open');
+});
+
+async function setThreshold(val) {
+  document.getElementById('thresholdMenu').classList.remove('open');
+  try {
+    const resp = await fetch(API_BASE + '/api/threshold', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold: val }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      document.getElementById('alertThresholdBadge').childNodes[0].textContent = '阈值: ≥' + data.threshold + '% ▾';
+      buildThresholdMenu(data.threshold);
+    }
+  } catch (e) { console.warn('Set threshold failed:', e); }
+}
+
+// ══════════════════════════════════════════════════════════
 // 主循环
 // ══════════════════════════════════════════════════════════
 let pollTimer = null;
@@ -751,6 +960,7 @@ async function mainPoll() {
   const data = await fetchData();
   if (data) {
     updatePriceCards(data);
+    updateRtCharts(data);
     updateCharts(data);
     recordTicks(data);
   }
