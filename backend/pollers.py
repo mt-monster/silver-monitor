@@ -3,6 +3,7 @@ import time
 from datetime import datetime
 
 from backend.alerts import check_tick_jump
+from backend.research.samples import append_huyin_research_sample
 from backend.analytics import rebuild_all_cache
 from backend.config import CST, FAST_POLL, SLOW_POLL, log
 from backend.market_hours import get_trading_status
@@ -114,6 +115,7 @@ class FastDataPoller(threading.Thread):
                                 hu.update(em)
                             state.silver_cache["data"] = hu
                             state.silver_cache["ts"] = time.time()
+                        append_huyin_research_sample(em["timestamp"], em["price"])
                         check_tick_jump("hu", em["price"], em.get("source", "Sina-AG0"))
 
                 if co_status == "open":

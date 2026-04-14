@@ -16,5 +16,22 @@
     "fallback_port": 8765,
     "poll_ms": 1000,
     "alert_poll_ms": 2000
+  },
+  "momentum": {
+    "short_p": 5,
+    "long_p": 20,
+    "spread_entry": 0.10,
+    "spread_strong": 0.35,
+    "slope_entry": 0.02
+  },
+  "research": {
+    "huyin_sample_max": 2000,
+    "min_sample_interval_ms": 0,
+    "monte_carlo_min_returns": 15,
+    "monte_carlo_max_paths": 50000,
+    "monte_carlo_default_paths": 3000,
+    "monte_carlo_histogram_bins": 20,
+    "path_preview_count": 40,
+    "path_steps": 28
   }
 }

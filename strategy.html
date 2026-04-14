@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略管理 | 贵金属监控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/monitor.css">
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="header-left">
+      <h1>策略管理</h1>
+    </div>
+    <div class="header-right">
+      <a class="header-nav" href="index.html">监控面板</a>
+      <a class="header-nav" href="research.html">实证研究</a>
+    </div>
+  </div>
+
+  <div class="card strategy-panel">
+    <div class="card-label">动量策略回测（EMA 张口 + 短 EMA 斜率确认）</div>
+    <p class="strategy-meta">
+      沪银/沪金为约 200 根 60 分钟 K 线；COMEX 银/金约 60 根日线。需安装 AkShare 且慢轮询已拉过历史时缓存更稳。回测为 long-only、收盘调仓、不计成本。
+    </p>
+
+    <div class="strategy-form">
+      <label>策略
+        <select id="strategySelect">
+          <option value="momentum">动量 EMA 短/长</option>
+        </select>
+      </label>
+      <label>标的
+        <select id="symbolSelect">
+          <option value="huyin">沪银 huyin</option>
+          <option value="comex">COMEX 银 comex</option>
+          <option value="hujin">沪金 hujin</option>
+          <option value="comex_gold">COMEX 金 comex_gold</option>
+        </select>
+      </label>
+      <label>短周期
+        <input type="number" id="shortP" value="5" min="2" max="60" step="1">
+      </label>
+      <label>长周期
+        <input type="number" id="longP" value="20" min="5" max="120" step="1">
+      </label>
+      <label>短线斜率阈值 (%)
+        <input type="number" id="slopeEntry" value="0.02" min="0" step="0.001">
+      </label>
+      <label>张口阈值 (%)
+        <input type="number" id="spreadEntry" value="0.10" min="0" step="0.01">
+      </label>
+      <label>强信号张口 (%)
+        <input type="number" id="spreadStrong" value="0.35" min="0" step="0.01">
+      </label>
+    </div>
+
+    <div class="strategy-actions">
+      <button type="button" class="btn-primary" id="runBacktestBtn">运行回测</button>
+    </div>
+    <div class="strategy-error" id="strategyError" style="display:none"></div>
+    <div class="strategy-meta" id="strategyMeta"></div>
+
+    <div class="metric-grid" id="metricGrid" style="display:none"></div>
+    <div class="chart-wrap" id="chartWrap" style="display:none">
+      <canvas id="equityChart"></canvas>
+    </div>
+    <div class="trades-wrap" id="tradesWrap" style="display:none">
+      <div class="card-label" style="margin-bottom:8px">成交明细</div>
+      <table>
+        <thead>
+          <tr><th>动作</th><th>时间(ms)</th><th>价格</th><th>信号</th></tr>
+        </thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="assets/js/monitor/core.js"></script>
+<script src="assets/js/monitor/strategy.js"></script>
+</body>
+</html>

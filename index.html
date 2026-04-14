@@ -26,6 +26,8 @@
       <h1>贵金属行情监控</h1>
     </div>
     <div class="header-right">
+      <a class="header-nav" href="strategy.html">策略管理</a>
+      <a class="header-nav" href="research.html">实证研究</a>
       <span id="debugInfo"></span>
       <button class="btn-refresh" id="refreshBtn" onclick="manualRefresh()" title="手动刷新">
         <span class="icon">⟳</span> 刷新
@@ -69,35 +71,35 @@
   <div class="signal-row">
     <div class="signal-card">
       <div class="signal-head">
-        <div class="label">🔴 沪银动量信号 <span class="ema-tag">EMA10/40 + ROC</span></div>
+        <div class="label">🔴 沪银动量信号 <span class="ema-tag">EMA5/20（张口+短线斜率）</span></div>
         <span id="huSigPts" style="font-size:9px;color:var(--text3)">--</span>
       </div>
       <div class="signal-body">
         <div class="signal-badge neutral" id="huSignalBadge">等待</div>
         <div class="signal-metrics">
-          <div class="row"><span>ROC(20)</span><span class="val" id="huROC">--</span></div>
-          <div class="row"><span>EMA10</span><span class="val" id="huEmaF">--</span></div>
-          <div class="row"><span>EMA40</span><span class="val" id="huEmaS">--</span></div>
+          <div class="row"><span class="momentum-roc-label">短线斜率</span><span class="val" id="huROC">--</span></div>
+          <div class="row"><span>EMA5</span><span class="val" id="huEmaF">--</span></div>
+          <div class="row"><span>EMA20</span><span class="val" id="huEmaS">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="huSigBar" style="width:50%"></div></div>
-      <div class="signal-note" id="huSigNote">需累积 40+ 个 tick 后产生信号</div>
+      <div class="signal-note" id="huSigNote">需至少 22 个有效价格点后计算</div>
     </div>
     <div class="signal-card">
       <div class="signal-head">
-        <div class="label">🟢 COMEX动量信号 <span class="ema-tag">EMA10/40 + ROC</span></div>
+        <div class="label">🟢 COMEX动量信号 <span class="ema-tag">EMA5/20（张口+短线斜率）</span></div>
         <span id="coSigPts" style="font-size:9px;color:var(--text3)">--</span>
       </div>
       <div class="signal-body">
         <div class="signal-badge neutral" id="coSignalBadge">等待</div>
         <div class="signal-metrics">
-          <div class="row"><span>ROC(20)</span><span class="val" id="coROC">--</span></div>
-          <div class="row"><span>EMA10</span><span class="val" id="coEmaF">--</span></div>
-          <div class="row"><span>EMA40</span><span class="val" id="coEmaS">--</span></div>
+          <div class="row"><span class="momentum-roc-label">短线斜率</span><span class="val" id="coROC">--</span></div>
+          <div class="row"><span>EMA5</span><span class="val" id="coEmaF">--</span></div>
+          <div class="row"><span>EMA20</span><span class="val" id="coEmaS">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="coSigBar" style="width:50%"></div></div>
-      <div class="signal-note" id="coSigNote">需累积 40+ 个 tick 后产生信号</div>
+      <div class="signal-note" id="coSigNote">需至少 22 个有效价格点后计算</div>
     </div>
   </div>
 
@@ -252,35 +254,35 @@
   <div class="signal-row">
     <div class="signal-card">
       <div class="signal-head">
-        <div class="label">🟡 沪金动量信号 <span class="ema-tag">EMA10/40 + ROC</span></div>
+        <div class="label">🟡 沪金动量信号 <span class="ema-tag">EMA5/20（张口+短线斜率）</span></div>
         <span id="auSigPts" style="font-size:9px;color:var(--text3)">--</span>
       </div>
       <div class="signal-body">
         <div class="signal-badge neutral" id="auSignalBadge">等待</div>
         <div class="signal-metrics">
-          <div class="row"><span>ROC(20)</span><span class="val" id="auROC">--</span></div>
-          <div class="row"><span>EMA10</span><span class="val" id="auEmaF">--</span></div>
-          <div class="row"><span>EMA40</span><span class="val" id="auEmaS">--</span></div>
+          <div class="row"><span class="momentum-roc-label">短线斜率</span><span class="val" id="auROC">--</span></div>
+          <div class="row"><span>EMA5</span><span class="val" id="auEmaF">--</span></div>
+          <div class="row"><span>EMA20</span><span class="val" id="auEmaS">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="auSigBar" style="width:50%"></div></div>
-      <div class="signal-note" id="auSigNote">需累积 40+ 个 tick 后产生信号</div>
+      <div class="signal-note" id="auSigNote">需至少 22 个有效价格点后计算</div>
     </div>
     <div class="signal-card">
       <div class="signal-head">
-        <div class="label">🟠 COMEX金动量信号 <span class="ema-tag">EMA10/40 + ROC</span></div>
+        <div class="label">🟠 COMEX金动量信号 <span class="ema-tag">EMA5/20（张口+短线斜率）</span></div>
         <span id="cgSigPts" style="font-size:9px;color:var(--text3)">--</span>
       </div>
       <div class="signal-body">
         <div class="signal-badge neutral" id="cgSignalBadge">等待</div>
         <div class="signal-metrics">
-          <div class="row"><span>ROC(20)</span><span class="val" id="cgROC">--</span></div>
-          <div class="row"><span>EMA10</span><span class="val" id="cgEmaF">--</span></div>
-          <div class="row"><span>EMA40</span><span class="val" id="cgEmaS">--</span></div>
+          <div class="row"><span class="momentum-roc-label">短线斜率</span><span class="val" id="cgROC">--</span></div>
+          <div class="row"><span>EMA5</span><span class="val" id="cgEmaF">--</span></div>
+          <div class="row"><span>EMA20</span><span class="val" id="cgEmaS">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="cgSigBar" style="width:50%"></div></div>
-      <div class="signal-note" id="cgSigNote">需累积 40+ 个 tick 后产生信号</div>
+      <div class="signal-note" id="cgSigNote">需至少 22 个有效价格点后计算</div>
     </div>
   </div>
 

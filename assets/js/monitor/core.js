@@ -7,6 +7,13 @@
       poll_ms: 1000,
       alert_poll_ms: 2000,
     },
+    momentum: {
+      short_p: 5,
+      long_p: 20,
+      spread_entry: 0.1,
+      spread_strong: 0.35,
+      slope_entry: 0.02,
+    },
   };
 
   Monitor.constants = {
@@ -66,6 +73,19 @@
     Monitor.constants.defaultApiHost = frontendConfig.default_api_host;
     Monitor.constants.fallbackPort = Number(frontendConfig.fallback_port);
     Monitor.apiBase = Monitor.getApiBase();
+
+    const momentum = { ...defaultConfig.momentum, ...(config?.momentum || {}) };
+    Monitor.momentumConfig = momentum;
+    Monitor.momentumThresholds = {
+      spreadEntry: Number(momentum.spread_entry),
+      spreadStrong: Number(momentum.spread_strong),
+      slopeEntry: Number(momentum.slope_entry != null ? momentum.slope_entry : 0.02),
+    };
+    Monitor.momentumPeriods = {
+      shortP: Number(momentum.short_p),
+      longP: Number(momentum.long_p),
+    };
+    if (typeof Monitor.refreshMomentumLabels === "function") Monitor.refreshMomentumLabels();
   };
 
   Monitor.loadRuntimeConfig = async function () {
@@ -81,5 +101,7 @@
     }
   };
 
+  Monitor.defaultRuntimeConfig = defaultConfig;
   Monitor.apiBase = Monitor.getApiBase();
+  Monitor.applyRuntimeConfig(defaultConfig);
 })();

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实证研究 | 贵金属监控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/monitor.css">
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="header-left">
+      <h1>实证研究</h1>
+    </div>
+    <div class="header-right">
+      <a class="header-nav" href="index.html">监控面板</a>
+      <a class="header-nav" href="strategy.html">策略管理</a>
+    </div>
+  </div>
+
+  <div class="research-disclaimer card">
+    <div class="card-label">说明与免责</div>
+    <p class="strategy-meta">
+      本页基于服务端快轮询累积的沪银成交价样本，用蒙特卡洛对<strong>日历时间 1 秒 / 5 秒</strong>的<strong>相对价格变化分布</strong>做统计模拟，并非交易所逐笔撮合预测。
+      观测间隔见 <code>monitor.config.json</code> 的 <code>polling.fast_seconds</code>；短 horizon 在数学上按波动率 √时间 与历史收益 Bootstrap 外推，<strong>不构成投资建议</strong>。
+    </p>
+  </div>
+
+  <div class="card strategy-panel">
+    <div class="card-label">沪银 · 蒙特卡洛短时变化</div>
+    <p class="strategy-meta" id="researchContextLine">加载中…</p>
+
+    <div class="strategy-form">
+      <label>预测 horizon（秒）
+        <select id="mcHorizon">
+          <option value="1">1 秒（日历外推）</option>
+          <option value="5" selected>5 秒（日历外推）</option>
+        </select>
+      </label>
+      <label>模型
+        <select id="mcModel">
+          <option value="gbm" selected>GBM（对数正态，收益方差按中位间隔换到秒）</option>
+          <option value="bootstrap">Bootstrap（有放回抽样历史对数收益）</option>
+        </select>
+      </label>
+      <label>漂移
+        <select id="mcDrift">
+          <option value="zero" selected>零漂移（默认）</option>
+          <option value="estimated">估计漂移（易过拟合短期）</option>
+        </select>
+      </label>
+      <label>回望窗口（分钟）
+        <input type="number" id="mcWindow" value="120" min="5" max="10080" step="5">
+      </label>
+      <label>模拟路径数
+        <input type="number" id="mcPaths" value="3000" min="100" max="50000" step="100">
+      </label>
+    </div>
+
+    <div class="strategy-actions">
+      <button type="button" class="btn-primary" id="runMcBtn">运行模拟</button>
+    </div>
+    <div class="strategy-error" id="researchError" style="display:none"></div>
+
+    <div class="metric-grid" id="researchMetrics" style="display:none"></div>
+    <p class="strategy-meta" id="researchPriceHint" style="display:none;margin-top:8px"></p>
+    <div class="chart-wrap" id="researchChartWrap" style="display:none">
+      <canvas id="mcHistChart"></canvas>
+    </div>
+    <div class="chart-wrap" id="researchPathWrap" style="display:none">
+      <canvas id="mcPathChart"></canvas>
+    </div>
+    <p class="strategy-meta" id="researchWarnings" style="display:none;margin-top:8px"></p>
+  </div>
+</div>
+
+<script src="assets/js/monitor/core.js"></script>
+<script src="assets/js/monitor/research.js"></script>
+</body>
+</html>

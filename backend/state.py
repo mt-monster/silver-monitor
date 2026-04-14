@@ -36,6 +36,8 @@ class AppState:
     tick_jump_threshold: float = DEFAULT_TICK_JUMP_THRESHOLD
     alert_max_history: int = DEFAULT_ALERT_MAX_HISTORY
 
+    huyin_research_samples: list = field(default_factory=list)
+
     silver_tick_ring: list = field(default_factory=list)
     comex_silver_tick_ring: list = field(default_factory=list)
     gold_tick_ring: list = field(default_factory=list)

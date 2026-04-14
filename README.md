@@ -61,11 +61,13 @@ silver-monitor/
 │        ├─ core.js
 │        ├─ gold.js
 │        ├─ momentum.js
-│        └─ silver.js
+│        ├─ silver.js
+│        └─ strategy.js
 ├─ backend/
 │  ├─ __init__.py
 │  ├─ alerts.py
 │  ├─ analytics.py
+│  ├─ backtest.py
 │  ├─ bootstrap.py
 │  ├─ config.py
 │  ├─ http_server.py
@@ -74,12 +76,18 @@ silver-monitor/
 │  ├─ pollers.py
 │  ├─ sources.py
 │  ├─ state.py
-│  └─ utils.py
+│  ├─ utils.py
+│  └─ strategies/
+│     ├─ __init__.py
+│     └─ momentum.py
 ├─ docs/
-│  └─ data-models.md
+│  ├─ data-models.md
+│  ├─ momentum-strategy.md
+│  └─ strategy-backtest.md
 ├─ tests/
 ├─ miniprogram/
 ├─ index.html
+├─ strategy.html
 ├─ monitor.config.json
 ├─ server.py
 └─ README.md

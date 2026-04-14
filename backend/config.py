@@ -10,6 +10,23 @@ DEFAULT_CONFIG = {
     "polling": {"fast_seconds": 3, "slow_seconds": 60},
     "alerts": {"tick_jump_threshold": 1.0, "max_history": 200},
     "frontend": {"default_api_host": "127.0.0.1", "fallback_port": 8765, "poll_ms": 1000, "alert_poll_ms": 2000},
+    "momentum": {
+        "short_p": 5,
+        "long_p": 20,
+        "spread_entry": 0.10,
+        "spread_strong": 0.35,
+        "slope_entry": 0.02,
+    },
+    "research": {
+        "huyin_sample_max": 2000,
+        "min_sample_interval_ms": 0,
+        "monte_carlo_min_returns": 15,
+        "monte_carlo_max_paths": 50000,
+        "monte_carlo_default_paths": 3000,
+        "monte_carlo_histogram_bins": 20,
+        "path_preview_count": 40,
+        "path_steps": 28,
+    },
 }
 
 
@@ -30,6 +47,10 @@ def load_runtime_config():
 
 
 RUNTIME_CONFIG = load_runtime_config()
+if "momentum" not in RUNTIME_CONFIG or not isinstance(RUNTIME_CONFIG.get("momentum"), dict):
+    RUNTIME_CONFIG["momentum"] = dict(DEFAULT_CONFIG["momentum"])
+if "research" not in RUNTIME_CONFIG or not isinstance(RUNTIME_CONFIG.get("research"), dict):
+    RUNTIME_CONFIG["research"] = dict(DEFAULT_CONFIG["research"])
 SERVER_HOST = RUNTIME_CONFIG["server"]["host"]
 PORT = int(RUNTIME_CONFIG["server"]["port"])
 FAST_POLL = int(RUNTIME_CONFIG["polling"]["fast_seconds"])

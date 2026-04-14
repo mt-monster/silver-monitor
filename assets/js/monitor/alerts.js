@@ -1,6 +1,28 @@
 (function () {
   const Monitor = window.Monitor;
   const { app, el } = Monitor;
+  const thresholdBadgeId = "alertThresholdBadge";
+
+  function formatThresholdLabel(value) {
+    return `阈值: ≥${value.toFixed(1)}%`;
+  }
+
+  function setThresholdUi(value) {
+    const badge = el(thresholdBadgeId);
+    if (badge && badge.childNodes[0]) {
+      badge.childNodes[0].textContent = formatThresholdLabel(value);
+    }
+    if (el("thCurVal")) {
+      el("thCurVal").textContent = value.toFixed(1);
+    }
+    const menu = el("thresholdMenu");
+    if (menu) {
+      [...menu.querySelectorAll(".th-item")].forEach(node => {
+        node.classList.toggle("active", Math.abs(parseFloat(node.dataset.th) - value) < 1e-9);
+      });
+    }
+    app.currentThreshold = value;
+  }
 
   Monitor.playAlertSound = function (severity, direction) {
     try {
@@ -69,17 +91,16 @@
   };
 
   Monitor.updateAlerts = function (payload) {
-    el("alertThreshold").textContent = `阈值 ${payload.threshold.toFixed(1)}% ▾`;
-    el("thCurVal").textContent = payload.threshold.toFixed(1);
+    setThresholdUi(Number(payload.threshold || 0));
 
     const huStats = payload.stats.hu || { surge: 0, drop: 0, maxJump: 0 };
     const coStats = payload.stats.comex || { surge: 0, drop: 0, maxJump: 0 };
     el("huSurge").textContent = huStats.surge;
     el("huDrop").textContent = huStats.drop;
-    el("huMax").textContent = huStats.maxJump.toFixed(3) + "%";
+    el("huMaxJump").textContent = huStats.maxJump.toFixed(3) + "%";
     el("coSurge").textContent = coStats.surge;
     el("coDrop").textContent = coStats.drop;
-    el("coMax").textContent = coStats.maxJump.toFixed(3) + "%";
+    el("coMaxJump").textContent = coStats.maxJump.toFixed(3) + "%";
 
     el("huTickRing").innerHTML = Monitor.renderTickRing(payload.huTickRing || [], false, false);
     el("coTickRing").innerHTML = Monitor.renderTickRing(payload.comexTickRing || [], true, false);
@@ -121,21 +142,25 @@
   };
 
   Monitor.buildThresholdMenu = function () {
-    const vals = [1.0, 1.5, 2.0, 3.0, 5.0];
+    const vals = Array.from({ length: 11 }, (_, index) => index * 0.5);
     el("thresholdMenu").innerHTML = vals.map(v => `<div class="th-item ${v === 1.0 ? "active" : ""}" data-th="${v}">阈值 ${v.toFixed(1)}%</div>`).join("");
     el("thresholdMenu").addEventListener("click", async event => {
       const item = event.target.closest(".th-item");
       if (!item) return;
       const th = parseFloat(item.dataset.th);
       try {
-        await fetch(`${Monitor.apiBase}/api/threshold`, {
+        const response = await fetch(`${Monitor.apiBase}/api/threshold`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ threshold: th }),
         });
-        [...el("thresholdMenu").querySelectorAll(".th-item")].forEach(node => node.classList.toggle("active", parseFloat(node.dataset.th) === th));
-        el("alertThreshold").textContent = `阈值 ${th.toFixed(1)}% ▾`;
-        el("thCurVal").textContent = th.toFixed(1);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        const appliedThreshold = Number(payload.threshold);
+        setThresholdUi(appliedThreshold);
+        await Monitor.fetchAlerts();
       } catch (err) {
         console.warn("set threshold failed", err);
       }
@@ -143,12 +168,13 @@
     });
   };
 
-  Monitor.toggleThresholdMenu = function () {
+  Monitor.toggleThresholdMenu = function (event) {
+    if (event) event.stopPropagation();
     el("thresholdMenu").classList.toggle("open");
   };
 
   document.addEventListener("click", event => {
-    if (!event.target.closest("#alertThreshold") && !event.target.closest("#thresholdMenu")) {
+    if (!event.target.closest("#" + thresholdBadgeId) && !event.target.closest("#thresholdMenu")) {
       const menu = el("thresholdMenu");
       if (menu) menu.classList.remove("open");
     }
