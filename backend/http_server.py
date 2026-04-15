@@ -101,7 +101,7 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": False, "error": "no_history"}).encode())
                 return
 
-            params = momentum_params_from_body(body)
+            params = momentum_params_from_body(body, symbol)
             result = run_momentum_long_only_backtest(bars, params)
             t0 = int(bars[0]["t"])
             t1 = int(bars[-1]["t"])

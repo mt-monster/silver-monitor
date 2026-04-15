@@ -18,11 +18,51 @@
     "alert_poll_ms": 2000
   },
   "momentum": {
-    "short_p": 5,
-    "long_p": 20,
-    "spread_entry": 0.10,
-    "spread_strong": 0.35,
-    "slope_entry": 0.02
+    "default": {
+      "short_p": 5,
+      "long_p": 20,
+      "spread_entry": 0.10,
+      "spread_strong": 0.35,
+      "slope_entry": 0.02,
+      "strength_multiplier": 120,
+      "cooldown_bars": 0
+    },
+    "huyin": {
+      "short_p": 8,
+      "long_p": 21,
+      "spread_entry": 0.15,
+      "spread_strong": 0.50,
+      "slope_entry": 0.03,
+      "strength_multiplier": 100,
+      "cooldown_bars": 3
+    },
+    "comex": {
+      "short_p": 3,
+      "long_p": 10,
+      "spread_entry": 0.03,
+      "spread_strong": 0.12,
+      "slope_entry": 0.008,
+      "strength_multiplier": 300,
+      "cooldown_bars": 2
+    },
+    "hujin": {
+      "short_p": 8,
+      "long_p": 21,
+      "spread_entry": 0.12,
+      "spread_strong": 0.40,
+      "slope_entry": 0.025,
+      "strength_multiplier": 100,
+      "cooldown_bars": 3
+    },
+    "comex_gold": {
+      "short_p": 3,
+      "long_p": 10,
+      "spread_entry": 0.03,
+      "spread_strong": 0.12,
+      "slope_entry": 0.008,
+      "strength_multiplier": 300,
+      "cooldown_bars": 2
+    }
   },
   "research": {
     "huyin_sample_max": 2000,

@@ -63,6 +63,25 @@ def load_history(symbol: str) -> tuple[list[dict], str, str | None]:
     return bars, interval, None
 
 
+def _incremental_ema(prices: list[float], period: int) -> list[float | None]:
+    """O(n) EMA with SMA seed, returns list aligned with prices."""
+    n = len(prices)
+    if n == 0:
+        return []
+    k = 2.0 / (period + 1)
+    out: list[float | None] = [None] * n
+    if n >= period:
+        seed = sum(prices[:period]) / period
+        out[period - 1] = seed
+        for i in range(period, n):
+            out[i] = prices[i] * k + out[i - 1] * (1 - k)  # type: ignore[operator]
+    else:
+        out[0] = prices[0]
+        for i in range(1, n):
+            out[i] = prices[i] * k + out[i - 1] * (1 - k)  # type: ignore[operator]
+    return out
+
+
 def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) -> dict[str, Any]:
     min_len = params.long_p + 2
     equity_curve: list[dict[str, Any]] = []
@@ -70,6 +89,12 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
     cash = 1.0
     shares = 0.0
     position_long = False
+
+    prices = [float(b["y"]) for b in bars]
+    ema_s = _incremental_ema(prices, params.short_p)
+    ema_l = _incremental_ema(prices, params.long_p)
+
+    cooldown_remaining = 0
 
     for i in range(len(bars)):
         t, price = bars[i]["t"], bars[i]["y"]
@@ -79,25 +104,38 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
             equity_curve.append({"t": t, "equity": round(eq_before, 6), "price": price})
             continue
 
-        vals = [float(b["y"]) for b in bars[: i + 1]]
-        info = calc_momentum(vals, params)
-        if info is None:
+        last_s = ema_s[i]
+        last_l = ema_l[i]
+        prev_s = ema_s[i - 1]
+        if last_s is None or last_l is None or prev_s is None:
             equity_curve.append({"t": t, "equity": round(eq_before, 6), "price": price})
             continue
 
-        sig = info["signal"]
+        spread_pct = ((last_s - last_l) / last_l) * 100 if last_l != 0 else 0.0
+        slope_pct = ((last_s - prev_s) / prev_s) * 100 if prev_s != 0 else 0.0
+
+        sig = "neutral"
+        if last_s > last_l and spread_pct > params.spread_entry and slope_pct > params.slope_entry:
+            sig = "strong_buy" if spread_pct > params.spread_strong else "buy"
+        elif last_s < last_l and spread_pct < -params.spread_entry and slope_pct < -params.slope_entry:
+            sig = "strong_sell" if spread_pct < -params.spread_strong else "sell"
+
         target_long = sig in ("strong_buy", "buy")
 
-        if target_long and not position_long and cash > 0 and price > 0:
+        if cooldown_remaining > 0:
+            cooldown_remaining -= 1
+        elif target_long and not position_long and cash > 0 and price > 0:
             shares = cash / price
             cash = 0.0
             position_long = True
+            cooldown_remaining = params.cooldown_bars
             trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": sig})
         elif not target_long and position_long and shares > 0 and price > 0:
             cash = shares * price
             trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": sig})
             shares = 0.0
             position_long = False
+            cooldown_remaining = params.cooldown_bars
 
         eq = cash + shares * price
         equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
@@ -191,13 +229,37 @@ def _annualized_sharpe(equity_curve: list[dict[str, Any]], span_years: float) ->
     return (mean_r / std_r) * math.sqrt(periods_per_year)
 
 
-def momentum_params_from_body(body: dict) -> MomentumParams:
-    base = RUNTIME_CONFIG.get("momentum") or {}
+def momentum_params_from_body(body: dict, symbol: str | None = None) -> MomentumParams:
+    """
+    从请求体和配置文件构建动量参数，支持品种级别配置。
+    
+    参数优先级：
+    1. 请求体中的 params（最高优先级）
+    2. 配置文件中的品种特定参数（如 momentum.huyin）
+    3. 配置文件中的默认参数（momentum.default 或 momentum）
+    """
+    config = RUNTIME_CONFIG.get("momentum") or {}
+    
+    # 获取默认配置
+    defaults = config.get("default") if isinstance(config.get("default"), dict) else config
+    
+    # 获取品种特定配置并合并
+    symbol_config = {}
+    if symbol and symbol in config and isinstance(config[symbol], dict):
+        symbol_config = config[symbol]
+    
+    # 合并默认配置和品种配置
+    merged = {**defaults, **symbol_config}
+    
+    # 请求体中的参数具有最高优先级
     p = body.get("params") or {}
+    
     return MomentumParams(
-        short_p=int(p.get("short_p", base.get("short_p", 5))),
-        long_p=int(p.get("long_p", base.get("long_p", 20))),
-        spread_entry=float(p.get("spread_entry", base.get("spread_entry", 0.10))),
-        spread_strong=float(p.get("spread_strong", base.get("spread_strong", 0.35))),
-        slope_entry=float(p.get("slope_entry", base.get("slope_entry", 0.02))),
+        short_p=int(p.get("short_p", merged.get("short_p", 5))),
+        long_p=int(p.get("long_p", merged.get("long_p", 20))),
+        spread_entry=float(p.get("spread_entry", merged.get("spread_entry", 0.10))),
+        spread_strong=float(p.get("spread_strong", merged.get("spread_strong", 0.35))),
+        slope_entry=float(p.get("slope_entry", merged.get("slope_entry", 0.02))),
+        strength_multiplier=float(p.get("strength_multiplier", merged.get("strength_multiplier", 120.0))),
+        cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 0))),
     )

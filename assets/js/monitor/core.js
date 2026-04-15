@@ -74,18 +74,62 @@
     Monitor.constants.fallbackPort = Number(frontendConfig.fallback_port);
     Monitor.apiBase = Monitor.getApiBase();
 
-    const momentum = { ...defaultConfig.momentum, ...(config?.momentum || {}) };
+    const momentum = config?.momentum || defaultConfig.momentum;
     Monitor.momentumConfig = momentum;
+
+    // 支持品种级别参数配置
+    const defaults = momentum.default || momentum;
     Monitor.momentumThresholds = {
-      spreadEntry: Number(momentum.spread_entry),
-      spreadStrong: Number(momentum.spread_strong),
-      slopeEntry: Number(momentum.slope_entry != null ? momentum.slope_entry : 0.02),
+      default: {
+        spreadEntry: Number(defaults.spread_entry),
+        spreadStrong: Number(defaults.spread_strong),
+        slopeEntry: Number(defaults.slope_entry != null ? defaults.slope_entry : 0.02),
+        strengthMul: Number(defaults.strength_multiplier != null ? defaults.strength_multiplier : 120),
+      },
     };
+
+    // 加载品种特定阈值
+    const symbols = ["huyin", "comex", "hujin", "comex_gold"];
+    symbols.forEach(symbol => {
+      if (momentum[symbol]) {
+        Monitor.momentumThresholds[symbol] = {
+          spreadEntry: Number(momentum[symbol].spread_entry ?? defaults.spread_entry),
+          spreadStrong: Number(momentum[symbol].spread_strong ?? defaults.spread_strong),
+          slopeEntry: Number(momentum[symbol].slope_entry ?? defaults.slope_entry ?? 0.02),
+          strengthMul: Number(momentum[symbol].strength_multiplier ?? defaults.strength_multiplier ?? 120),
+        };
+      }
+    });
+
+    // 品种级别 EMA 周期配置
     Monitor.momentumPeriods = {
-      shortP: Number(momentum.short_p),
-      longP: Number(momentum.long_p),
+      default: { shortP: Number(defaults.short_p), longP: Number(defaults.long_p) },
     };
+    symbols.forEach(symbol => {
+      if (momentum[symbol]) {
+        Monitor.momentumPeriods[symbol] = {
+          shortP: Number(momentum[symbol].short_p ?? defaults.short_p),
+          longP: Number(momentum[symbol].long_p ?? defaults.long_p),
+        };
+      }
+    });
     if (typeof Monitor.refreshMomentumLabels === "function") Monitor.refreshMomentumLabels();
+  };
+
+  // 获取特定品种的动量参数（合并default和品种特定参数）
+  Monitor.getMomentumThresholds = function (symbol) {
+    const defaults = Monitor.momentumThresholds.default || Monitor.momentumThresholds;
+    if (!symbol || !Monitor.momentumThresholds[symbol]) {
+      return defaults;
+    }
+    return { ...defaults, ...Monitor.momentumThresholds[symbol] };
+  };
+
+  // 获取特定品种的 EMA 周期（支持按品种配置）
+  Monitor.getMomentumPeriods = function (symbol) {
+    const d = Monitor.momentumPeriods?.default || { shortP: 5, longP: 20 };
+    if (!symbol || !Monitor.momentumPeriods?.[symbol]) return d;
+    return { ...d, ...Monitor.momentumPeriods[symbol] };
   };
 
   Monitor.loadRuntimeConfig = async function () {

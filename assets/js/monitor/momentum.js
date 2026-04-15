@@ -36,11 +36,51 @@
 
 
 
+  /** 去重入队：价格未变时跳过，避免重复 tick 淹没 EMA 张口。cap 为最大长度。 */
+
+  function _pushIfChanged(arr, price, ts, cap) {
+
+    if (arr.length > 0 && arr[arr.length - 1].y === price) return;
+
+    arr.push({ t: ts, y: price });
+
+    while (arr.length > cap) arr.shift();
+
+  }
+
+
+
   Monitor.ema = function (values, period) {
 
     if (!values.length) return [];
 
     const k = 2 / (period + 1);
+
+    // SMA 种子：前 period 个值取平均作为 EMA 起点，减少冷启动偏差
+
+    if (values.length >= period) {
+
+      let sum = 0;
+
+      for (let i = 0; i < period; i++) sum += values[i];
+
+      const seed = sum / period;
+
+      const out = new Array(period);
+
+      // 种子期用 SMA 线性填充（保持数组长度一致）
+
+      for (let i = 0; i < period - 1; i++) out[i] = null;
+
+      out[period - 1] = seed;
+
+      for (let i = period; i < values.length; i++) out.push(values[i] * k + out[i - 1] * (1 - k));
+
+      return out;
+
+    }
+
+    // 数据不足一个周期，退化为简单 EMA（首值种子）
 
     const out = [values[0]];
 
@@ -54,7 +94,7 @@
 
   /** EMA 短/长 张口 + 短 EMA 一步涨跌幅（%）；强信号仅由张口超过 spreadStrong 决定（与首版逻辑一致）。 */
 
-  Monitor.calcMomentum = function (series, shortP, longP) {
+  Monitor.calcMomentum = function (series, shortP, longP, thresholds) {
 
     if (!series || series.length < longP + 2) return null;
 
@@ -70,23 +110,26 @@
 
     const prevS = emaS[emaS.length - 2];
 
+    // 跳过 SMA 种子期的 null 值
+
+    if (lastS == null || lastL == null || prevS == null) return null;
+
     const spreadPct = lastL !== 0 ? ((lastS - lastL) / lastL) * 100 : 0;
 
     const slopePct = prevS !== 0 ? ((lastS - prevS) / prevS) * 100 : 0;
 
 
 
-    const th =
-
-      Monitor.momentumThresholds ||
-
-      ({ spreadEntry: 0.1, spreadStrong: 0.35, slopeEntry: 0.02 });
+    // 使用传入的阈值或默认值
+    const th = thresholds || Monitor.getMomentumThresholds();
 
     const se = th.spreadEntry;
 
     const ss = th.spreadStrong;
 
     const sl = th.slopeEntry != null ? th.slopeEntry : 0.02;
+
+    const sm = th.strengthMul != null ? th.strengthMul : 120;
 
 
 
@@ -116,7 +159,7 @@
 
       longEMA: lastL,
 
-      strength: Math.min(100, Math.abs(spreadPct) * 120),
+      strength: Math.min(100, Math.abs(spreadPct) * sm),
 
     };
 
@@ -210,7 +253,7 @@
 
   Monitor.refreshMomentumLabels = function () {
 
-    const { shortP, longP } = Monitor.momentumPeriods || { shortP: 5, longP: 20 };
+    const { shortP, longP } = Monitor.momentumPeriods?.default || { shortP: 5, longP: 20 };
 
     const tag = `EMA${shortP}/${longP}（张口+短线斜率）`;
 
@@ -286,13 +329,9 @@
 
     const co = data.comex;
 
-    if (hu && !hu.error && !hu.closed && hu.price > 0) app.silverLivePoints.push({ t: hu.timestamp || Date.now(), y: hu.price });
+    if (hu && !hu.error && !hu.closed && hu.price > 0) _pushIfChanged(app.silverLivePoints, hu.price, hu.timestamp || Date.now(), 180);
 
-    if (co && !co.error && !co.closed && co.price > 0) app.comexSilverLivePoints.push({ t: co.timestamp || Date.now(), y: co.price });
-
-    if (app.silverLivePoints.length > 180) app.silverLivePoints.shift();
-
-    if (app.comexSilverLivePoints.length > 180) app.comexSilverLivePoints.shift();
+    if (co && !co.error && !co.closed && co.price > 0) _pushIfChanged(app.comexSilverLivePoints, co.price, co.timestamp || Date.now(), 180);
 
 
 
@@ -300,11 +339,14 @@
 
     const coSeries = app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
 
-    const { shortP, longP } = Monitor.momentumPeriods || { shortP: 5, longP: 20 };
+    // 使用品种特定的周期和阈值参数
+    const huP = Monitor.getMomentumPeriods("huyin");
 
-    const huSig = Monitor.calcMomentum(huSeries, shortP, longP);
+    const coP = Monitor.getMomentumPeriods("comex");
 
-    const coSig = Monitor.calcMomentum(coSeries, shortP, longP);
+    const huSig = Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"));
+
+    const coSig = Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"));
 
 
 
@@ -340,9 +382,13 @@
 
     const cg = data.comexGold;
 
-    if (au && !au.error && !au.closed && au.price > 0) app.goldLivePoints = [...(app.goldLivePoints || []), { t: au.timestamp || Date.now(), y: au.price }].slice(-180);
+    app.goldLivePoints = app.goldLivePoints || [];
 
-    if (cg && !cg.error && !cg.closed && cg.price > 0) app.comexGoldLivePoints = [...(app.comexGoldLivePoints || []), { t: cg.timestamp || Date.now(), y: cg.price }].slice(-180);
+    app.comexGoldLivePoints = app.comexGoldLivePoints || [];
+
+    if (au && !au.error && !au.closed && au.price > 0) _pushIfChanged(app.goldLivePoints, au.price, au.timestamp || Date.now(), 180);
+
+    if (cg && !cg.error && !cg.closed && cg.price > 0) _pushIfChanged(app.comexGoldLivePoints, cg.price, cg.timestamp || Date.now(), 180);
 
 
 
@@ -350,11 +396,14 @@
 
     const cgSeries = (app.comexGoldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
 
-    const { shortP, longP } = Monitor.momentumPeriods || { shortP: 5, longP: 20 };
+    // 使用品种特定的周期和阈值参数
+    const auP = Monitor.getMomentumPeriods("hujin");
 
-    const auSig = Monitor.calcMomentum(auSeries, shortP, longP);
+    const cgP = Monitor.getMomentumPeriods("comex_gold");
 
-    const cgSig = Monitor.calcMomentum(cgSeries, shortP, longP);
+    const auSig = Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"));
+
+    const cgSig = Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"));
 
 
 
