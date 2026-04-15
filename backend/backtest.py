@@ -13,7 +13,7 @@ from backend.sources import (
     fetch_huyin_history,
 )
 from backend.state import state
-from backend.strategies.momentum import MomentumParams, calc_momentum
+from backend.strategies.momentum import MomentumParams, _fuse_with_bb, calc_momentum
 
 _HISTORY_FETCHERS: dict[str, tuple[str, Callable[[], list | None], Any]] = {
     "huyin": ("60m", fetch_huyin_history, state.silver_cache),
@@ -82,6 +82,29 @@ def _incremental_ema(prices: list[float], period: int) -> list[float | None]:
     return out
 
 
+def _incremental_bb(
+    prices: list[float], period: int, mult: float,
+) -> list[dict | None]:
+    """O(n*period) rolling Bollinger Band, returns list aligned with prices."""
+    n = len(prices)
+    out: list[dict | None] = [None] * n
+    if n < period or period < 2:
+        return out
+    # running sum / sum-of-squares for O(n) amortised
+    for i in range(period - 1, n):
+        window = prices[i - period + 1: i + 1]
+        sma = sum(window) / period
+        var = sum((x - sma) ** 2 for x in window) / period
+        std = math.sqrt(var)
+        upper = sma + mult * std
+        lower = sma - mult * std
+        bw = upper - lower
+        pct_b = (prices[i] - lower) / bw if bw > 1e-12 else 0.5
+        bandwidth = bw / sma * 100 if sma > 0 else 0.0
+        out[i] = {"percentB": pct_b, "bandwidth": bandwidth}
+    return out
+
+
 def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) -> dict[str, Any]:
     min_len = params.long_p + 2
     equity_curve: list[dict[str, Any]] = []
@@ -93,6 +116,7 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
     prices = [float(b["y"]) for b in bars]
     ema_s = _incremental_ema(prices, params.short_p)
     ema_l = _incremental_ema(prices, params.long_p)
+    bb_data = _incremental_bb(prices, params.bb_period, params.bb_mult) if params.bb_period > 0 else [None] * len(prices)
 
     cooldown_remaining = 0
 
@@ -119,6 +143,13 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
             sig = "strong_buy" if spread_pct > params.spread_strong else "buy"
         elif last_s < last_l and spread_pct < -params.spread_entry and slope_pct < -params.slope_entry:
             sig = "strong_sell" if spread_pct < -params.spread_strong else "sell"
+
+        # Bollinger 带融合
+        bb_now = bb_data[i] if i < len(bb_data) else None
+        bb_prev = bb_data[i - 1] if i > 0 and i - 1 < len(bb_data) else None
+        if bb_now:
+            bw_exp = bb_prev is not None and bb_now["bandwidth"] > bb_prev["bandwidth"]
+            sig = _fuse_with_bb(sig, bb_now["percentB"], bw_exp)
 
         target_long = sig in ("strong_buy", "buy")
 
@@ -262,4 +293,6 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         slope_entry=float(p.get("slope_entry", merged.get("slope_entry", 0.02))),
         strength_multiplier=float(p.get("strength_multiplier", merged.get("strength_multiplier", 120.0))),
         cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 0))),
+        bb_period=int(p.get("bb_period", merged.get("bb_period", 20))),
+        bb_mult=float(p.get("bb_mult", merged.get("bb_mult", 2.0))),
     )

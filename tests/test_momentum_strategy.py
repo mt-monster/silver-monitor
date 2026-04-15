@@ -1,8 +1,15 @@
 """动量策略核心与前端 momentum.js 数值对齐（固定序列）。"""
 
+import math
 import unittest
 
-from backend.strategies.momentum import MomentumParams, calc_momentum, ema_series
+from backend.strategies.momentum import (
+    MomentumParams,
+    _fuse_with_bb,
+    bollinger_at,
+    calc_momentum,
+    ema_series,
+)
 
 
 class MomentumCoreTestCase(unittest.TestCase):
@@ -82,6 +89,108 @@ class MomentumCoreTestCase(unittest.TestCase):
         self.assertEqual(info["signal"], "strong_sell")
         self.assertLess(info["spreadPct"], -0.35)
         self.assertLess(info["slopePct"], -0.02)
+
+
+class BollingerBandTestCase(unittest.TestCase):
+    def test_bollinger_flat_series(self):
+        """恒定价格 → 标准差为 0, %B=0.5, bandwidth=0。"""
+        vals = [100.0] * 30
+        bb = bollinger_at(vals, 20, 2.0)
+        self.assertIsNotNone(bb)
+        self.assertAlmostEqual(bb["middle"], 100.0)
+        self.assertAlmostEqual(bb["upper"], 100.0)
+        self.assertAlmostEqual(bb["lower"], 100.0)
+        self.assertAlmostEqual(bb["percentB"], 0.5)
+        self.assertAlmostEqual(bb["bandwidth"], 0.0)
+
+    def test_bollinger_known_values(self):
+        """已知序列验证 BB 计算正确性。"""
+        vals = list(range(1, 21))  # 1..20
+        bb = bollinger_at([float(v) for v in vals], 20, 2.0)
+        self.assertIsNotNone(bb)
+        expected_sma = sum(vals) / 20.0
+        self.assertAlmostEqual(bb["middle"], expected_sma)
+        var = sum((x - expected_sma) ** 2 for x in vals) / 20.0
+        expected_std = math.sqrt(var)
+        self.assertAlmostEqual(bb["upper"], expected_sma + 2 * expected_std)
+        self.assertAlmostEqual(bb["lower"], expected_sma - 2 * expected_std)
+
+    def test_bollinger_insufficient_data(self):
+        """数据不足 → 返回 None。"""
+        self.assertIsNone(bollinger_at([1.0, 2.0, 3.0], 20, 2.0))
+
+    def test_bollinger_percent_b_above_upper(self):
+        """价格远高于上轨 → %B > 1。"""
+        vals = [100.0] * 19 + [200.0]
+        bb = bollinger_at(vals, 20, 2.0)
+        self.assertIsNotNone(bb)
+        self.assertGreater(bb["percentB"], 1.0)
+
+
+class FuseWithBBTestCase(unittest.TestCase):
+    def test_buy_near_lower_band_downgraded(self):
+        """%B < 0.3 时 buy → neutral。"""
+        self.assertEqual(_fuse_with_bb("buy", 0.2, False), "neutral")
+
+    def test_buy_above_mid_expanding_upgraded(self):
+        """%B > 0.5 + 扩张 → strong_buy。"""
+        self.assertEqual(_fuse_with_bb("buy", 0.7, True), "strong_buy")
+
+    def test_buy_above_mid_not_expanding_stays(self):
+        """%B > 0.5 但不扩张 → 保持 buy。"""
+        self.assertEqual(_fuse_with_bb("buy", 0.7, False), "buy")
+
+    def test_strong_buy_overbought_downgraded(self):
+        """%B > 1.0 → strong_buy 降为 buy。"""
+        self.assertEqual(_fuse_with_bb("strong_buy", 1.1, True), "buy")
+
+    def test_sell_near_upper_band_downgraded(self):
+        """%B > 0.7 时 sell → neutral。"""
+        self.assertEqual(_fuse_with_bb("sell", 0.8, False), "neutral")
+
+    def test_sell_below_mid_expanding_upgraded(self):
+        """%B < 0.5 + 扩张 → strong_sell。"""
+        self.assertEqual(_fuse_with_bb("sell", 0.3, True), "strong_sell")
+
+    def test_strong_sell_oversold_downgraded(self):
+        """%B < 0.0 → strong_sell 降为 sell。"""
+        self.assertEqual(_fuse_with_bb("strong_sell", -0.1, True), "sell")
+
+    def test_neutral_unchanged(self):
+        """neutral 不受 BB 影响。"""
+        self.assertEqual(_fuse_with_bb("neutral", 0.5, True), "neutral")
+
+
+class CalcMomentumWithBBTestCase(unittest.TestCase):
+    def test_result_contains_bb_field(self):
+        """启用 BB 时结果应包含 bb 字段。"""
+        vals = [100.0 + i * 2.0 for i in range(50)]
+        info = calc_momentum(vals, MomentumParams(bb_period=20, bb_mult=2.0))
+        self.assertIsNotNone(info)
+        self.assertIn("bb", info)
+        bb = info["bb"]
+        self.assertIn("percentB", bb)
+        self.assertIn("bandwidth", bb)
+        self.assertIn("bwExpanding", bb)
+        self.assertIn("squeeze", bb)
+
+    def test_bb_disabled_no_bb_field(self):
+        """bb_period=0 时结果不含 bb 字段。"""
+        vals = [100.0 + i * 2.0 for i in range(50)]
+        info = calc_momentum(vals, MomentumParams(bb_period=0))
+        self.assertIsNotNone(info)
+        self.assertNotIn("bb", info)
+
+    def test_bb_fusion_changes_signal(self):
+        """BB 融合应能修正原始 EMA 信号。"""
+        base = 10000.0
+        vals = [base + i * 80.0 for i in range(50)]
+        no_bb = calc_momentum(vals, MomentumParams(bb_period=0))
+        with_bb = calc_momentum(vals, MomentumParams(bb_period=20, bb_mult=2.0))
+        self.assertIsNotNone(no_bb)
+        self.assertIsNotNone(with_bb)
+        self.assertIn(no_bb["signal"], ("strong_buy", "buy"))
+        self.assertIn(with_bb["signal"], ("strong_buy", "buy", "neutral"))
 
 
 if __name__ == "__main__":

@@ -85,6 +85,8 @@
         spreadStrong: Number(defaults.spread_strong),
         slopeEntry: Number(defaults.slope_entry != null ? defaults.slope_entry : 0.02),
         strengthMul: Number(defaults.strength_multiplier != null ? defaults.strength_multiplier : 120),
+        bbPeriod: Number(defaults.bb_period != null ? defaults.bb_period : 20),
+        bbMult: Number(defaults.bb_mult != null ? defaults.bb_mult : 2.0),
       },
     };
 
@@ -97,6 +99,8 @@
           spreadStrong: Number(momentum[symbol].spread_strong ?? defaults.spread_strong),
           slopeEntry: Number(momentum[symbol].slope_entry ?? defaults.slope_entry ?? 0.02),
           strengthMul: Number(momentum[symbol].strength_multiplier ?? defaults.strength_multiplier ?? 120),
+          bbPeriod: Number(momentum[symbol].bb_period ?? defaults.bb_period ?? 20),
+          bbMult: Number(momentum[symbol].bb_mult ?? defaults.bb_mult ?? 2.0),
         };
       }
     });

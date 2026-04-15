@@ -92,7 +92,77 @@
 
 
 
-  /** EMA 短/长 张口 + 短 EMA 一步涨跌幅（%）；强信号仅由张口超过 spreadStrong 决定（与首版逻辑一致）。 */
+  /** 计算最后一根 bar 的 Bollinger Band */
+
+  Monitor.bollingerAt = function (values, period, mult) {
+
+    const n = values.length;
+
+    if (n < period || period < 2) return null;
+
+    let sum = 0;
+
+    for (let i = n - period; i < n; i++) sum += values[i];
+
+    const sma = sum / period;
+
+    let varSum = 0;
+
+    for (let i = n - period; i < n; i++) varSum += (values[i] - sma) ** 2;
+
+    const std = Math.sqrt(varSum / period);
+
+    const upper = sma + mult * std;
+
+    const lower = sma - mult * std;
+
+    const bw = upper - lower;
+
+    const pctB = bw > 1e-12 ? (values[n - 1] - lower) / bw : 0.5;
+
+    const bandwidth = sma > 0 ? (bw / sma) * 100 : 0;
+
+    return { upper, middle: sma, lower, percentB: pctB, bandwidth };
+
+  };
+
+
+
+  /** BB 融合修正 EMA 动量信号（与后端 _fuse_with_bb 对齐） */
+
+  function _fuseWithBB(baseSig, pctB, bwExpanding) {
+
+    let sig = baseSig;
+
+    if (sig === "buy") {
+
+      if (pctB < 0.3) sig = "neutral";
+
+      else if (pctB > 0.5 && bwExpanding) sig = "strong_buy";
+
+    } else if (sig === "strong_buy") {
+
+      if (pctB > 1.0) sig = "buy";
+
+    } else if (sig === "sell") {
+
+      if (pctB > 0.7) sig = "neutral";
+
+      else if (pctB < 0.5 && bwExpanding) sig = "strong_sell";
+
+    } else if (sig === "strong_sell") {
+
+      if (pctB < 0.0) sig = "sell";
+
+    }
+
+    return sig;
+
+  }
+
+
+
+  /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 */
 
   Monitor.calcMomentum = function (series, shortP, longP, thresholds) {
 
@@ -110,8 +180,6 @@
 
     const prevS = emaS[emaS.length - 2];
 
-    // 跳过 SMA 种子期的 null 值
-
     if (lastS == null || lastL == null || prevS == null) return null;
 
     const spreadPct = lastL !== 0 ? ((lastS - lastL) / lastL) * 100 : 0;
@@ -120,7 +188,6 @@
 
 
 
-    // 使用传入的阈值或默认值
     const th = thresholds || Monitor.getMomentumThresholds();
 
     const se = th.spreadEntry;
@@ -130,6 +197,10 @@
     const sl = th.slopeEntry != null ? th.slopeEntry : 0.02;
 
     const sm = th.strengthMul != null ? th.strengthMul : 120;
+
+    const bbP = th.bbPeriod || 0;
+
+    const bbM = th.bbMult || 2.0;
 
 
 
@@ -142,6 +213,30 @@
     } else if (lastS < lastL && spreadPct < -se && slopePct < -sl) {
 
       signal = spreadPct < -ss ? "strong_sell" : "sell";
+
+    }
+
+
+
+    // Bollinger 带融合
+
+    let bb = null;
+
+    if (bbP > 0 && vals.length >= bbP) {
+
+      const bbNow = Monitor.bollingerAt(vals, bbP, bbM);
+
+      const bbPrev = vals.length > bbP ? Monitor.bollingerAt(vals.slice(0, -1), bbP, bbM) : null;
+
+      if (bbNow) {
+
+        const bwExpanding = bbPrev != null && bbNow.bandwidth > bbPrev.bandwidth;
+
+        signal = _fuseWithBB(signal, bbNow.percentB, bwExpanding);
+
+        bb = { ...bbNow, bwExpanding, squeeze: false };
+
+      }
 
     }
 
@@ -160,6 +255,8 @@
       longEMA: lastL,
 
       strength: Math.min(100, Math.abs(spreadPct) * sm),
+
+      bb,
 
     };
 
@@ -243,9 +340,59 @@
 
     if (pointsEl) pointsEl.textContent = "实时";
 
-    if (noteEl)
+    // BB 指标渲染
 
-      noteEl.textContent = `动量差 ${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
+    const bollBEl = findEl(prefix + "BollB");
+
+    const bollBWEl = findEl(prefix + "BollBW");
+
+    if (bollBEl && info.bb) {
+
+      const b = info.bb.percentB;
+
+      const cls = b > 0.8 ? "up" : b < 0.2 ? "down" : "";
+
+      bollBEl.innerHTML = `<span class="val ${cls}">${b.toFixed(2)}</span>`;
+
+    } else if (bollBEl) {
+
+      bollBEl.textContent = "--";
+
+    }
+
+    if (bollBWEl && info.bb) {
+
+      bollBWEl.textContent = info.bb.bandwidth.toFixed(2) + "%";
+
+    } else if (bollBWEl) {
+
+      bollBWEl.textContent = "--";
+
+    }
+
+
+
+    if (noteEl) {
+
+      let note = `动量差 ${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
+
+      if (info.bb) {
+
+        const b = info.bb.percentB;
+
+        if (info.bb.squeeze) note += " | Boll缩口";
+
+        else if (b > 1.0) note += " | 超买";
+
+        else if (b < 0.0) note += " | 超卖";
+
+        else if (info.bb.bwExpanding) note += " | 带宽扩张";
+
+      }
+
+      noteEl.textContent = note;
+
+    }
 
   };
 
@@ -255,7 +402,7 @@
 
     const { shortP, longP } = Monitor.momentumPeriods?.default || { shortP: 5, longP: 20 };
 
-    const tag = `EMA${shortP}/${longP}（张口+短线斜率）`;
+    const tag = `EMA${shortP}/${longP}+Boll（动量+带融合）`;
 
     document.querySelectorAll(".signal-card .ema-tag").forEach(node => {
 
