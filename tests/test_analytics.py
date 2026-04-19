@@ -11,6 +11,7 @@ class AnalyticsTestCase(unittest.TestCase):
         state.gold_cache = {"data": None, "ts": 0}
         state.comex_gold_cache = {"data": None, "ts": 0}
         state.combined_cache = {"data": None, "ts": 0}
+        state.instrument_signals = {}
         state.usd_cny_cache = {"rate": 7.0, "ts": 0}
 
     def test_compute_rolling_hv_returns_series(self):
@@ -51,6 +52,19 @@ class AnalyticsTestCase(unittest.TestCase):
         self.assertEqual(combined["goldSilverRatio"], 20.0)
         self.assertIn("hu", combined["hvSeries"])
         self.assertIn("comex", combined["hvSeries"])
+
+    def test_rebuild_all_cache_includes_precomputed_signals(self):
+        state.silver_cache["data"] = {"price": 1000.0, "source": "test-silver"}
+        state.instrument_signals = {
+            "ag0": {"signal": "buy", "strength": 42.0, "spreadPct": 0.12},
+            "xag": None,
+        }
+
+        combined = rebuild_all_cache()
+
+        self.assertIn("signals", combined)
+        self.assertEqual(combined["signals"]["ag0"]["signal"], "buy")
+        self.assertNotIn("xag", combined["signals"])
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ class CombinedApiResponse(TypedDict):
     huyin: MarketSnapshot | dict
     comexGold: MarketSnapshot | dict
     hujin: MarketSnapshot | dict
+    signals: NotRequired[dict[str, dict]]
     spread: SpreadSnapshot | dict
     goldSpread: SpreadSnapshot | dict
     goldSilverRatio: float | None

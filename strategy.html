@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>策略管理 | 贵金属监控</title>
+<title>策略管理 | 商品行情监控</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
@@ -23,24 +23,28 @@
     </div>
   </div>
 
+  <!-- ══ 回测面板 ══ -->
   <div class="card strategy-panel">
-    <div class="card-label">动量策略回测（EMA 张口 + 短 EMA 斜率确认）</div>
+    <div class="card-label">动量策略回测（EMA + Boll + RSI 融合信号）</div>
     <p class="strategy-meta">
-      沪银/沪金为约 200 根 60 分钟 K 线；COMEX 银/金约 60 根日线。需安装 AkShare 且慢轮询已拉过历史时缓存更稳。回测为 long-only、收盘调仓、不计成本。
+      国内品种约 200 根 60 分钟 K 线，国际品种约 60 根日线。需安装 AkShare。
     </p>
 
     <div class="strategy-form">
       <label>策略
         <select id="strategySelect">
-          <option value="momentum">动量 EMA 短/长</option>
+          <option value="momentum">动量 EMA+Boll+RSI</option>
         </select>
       </label>
       <label>标的
         <select id="symbolSelect">
-          <option value="huyin">沪银 huyin</option>
-          <option value="comex">COMEX 银 comex</option>
-          <option value="hujin">沪金 hujin</option>
-          <option value="comex_gold">COMEX 金 comex_gold</option>
+          <option value="">加载中...</option>
+        </select>
+      </label>
+      <label>模式
+        <select id="modeSelect">
+          <option value="long_only">Long-Only</option>
+          <option value="long_short">Long-Short</option>
         </select>
       </label>
       <label>短周期
@@ -58,10 +62,32 @@
       <label>强信号张口 (%)
         <input type="number" id="spreadStrong" value="0.35" min="0" step="0.01">
       </label>
+      <label>BB周期
+        <input type="number" id="bbPeriod" value="20" min="0" max="100" step="1">
+      </label>
+      <label>BB倍数
+        <input type="number" id="bbMult" value="2.0" min="0" max="5" step="0.1">
+      </label>
+      <label>RSI周期
+        <input type="number" id="rsiPeriod" value="14" min="0" max="60" step="1">
+      </label>
+      <label>冷却K线
+        <input type="number" id="cooldownBars" value="0" min="0" max="20" step="1">
+      </label>
+    </div>
+
+    <div class="strategy-form" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+      <label>手续费 %
+        <input type="number" id="commissionRate" value="0" min="0" max="1" step="0.001">
+      </label>
+      <label>滑点 %
+        <input type="number" id="slippagePct" value="0" min="0" max="1" step="0.001">
+      </label>
     </div>
 
     <div class="strategy-actions">
       <button type="button" class="btn-primary" id="runBacktestBtn">运行回测</button>
+      <button type="button" class="btn-secondary" id="runWalkForwardBtn" title="Walk-Forward 训练/测试分割验证">Walk-Forward</button>
     </div>
     <div class="strategy-error" id="strategyError" style="display:none"></div>
     <div class="strategy-meta" id="strategyMeta"></div>
@@ -77,6 +103,47 @@
           <tr><th>动作</th><th>时间(ms)</th><th>价格</th><th>信号</th></tr>
         </thead>
         <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ Walk-Forward 结果 ══ -->
+  <div class="card strategy-panel" id="wfPanel" style="display:none;margin-top:16px">
+    <div class="card-label">Walk-Forward 验证</div>
+    <div class="strategy-meta" id="wfMeta"></div>
+    <div class="metric-grid" id="wfGrid" style="display:grid"></div>
+    <div class="strategy-error" id="wfError" style="display:none"></div>
+  </div>
+
+  <!-- ══ Grid Search ══ -->
+  <div class="card strategy-panel" style="margin-top:16px">
+    <div class="card-label">参数优化 Grid Search</div>
+    <p class="strategy-meta">选择需要搜索的参数范围（逗号分隔值列表），点击开始搜索。返回 Sharpe 排名前 N 的参数组合。</p>
+    <div class="strategy-form">
+      <label>short_p 范围
+        <input type="text" id="gsShortP" value="3,5,8" placeholder="e.g. 3,5,8">
+      </label>
+      <label>long_p 范围
+        <input type="text" id="gsLongP" value="15,20,25" placeholder="e.g. 15,20,25">
+      </label>
+      <label>spread_entry 范围
+        <input type="text" id="gsSpreadEntry" value="0.05,0.10,0.15" placeholder="e.g. 0.05,0.10,0.15">
+      </label>
+      <label>Top N
+        <input type="number" id="gsTopN" value="10" min="1" max="50" step="1">
+      </label>
+    </div>
+    <div class="strategy-actions">
+      <button type="button" class="btn-primary" id="runGridSearchBtn">开始搜索</button>
+    </div>
+    <div class="strategy-error" id="gsError" style="display:none"></div>
+    <div class="trades-wrap" id="gsResultsWrap" style="display:none">
+      <div class="card-label" style="margin-bottom:8px">搜索结果（按 Sharpe 排序）</div>
+      <table>
+        <thead>
+          <tr><th>#</th><th>short_p</th><th>long_p</th><th>spread_entry</th><th>Sharpe</th><th>收益%</th><th>回撤%</th><th>胜率%</th><th>回合</th></tr>
+        </thead>
+        <tbody id="gsResultsBody"></tbody>
       </table>
     </div>
   </div>

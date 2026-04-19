@@ -32,6 +32,8 @@
 
     cg: { last: "neutral", strength: 0 },
 
+    btc: { last: "neutral", strength: 0 },
+
   };
 
 
@@ -127,6 +129,39 @@
   };
 
 
+
+  /** RSI via Wilder's smoothing（与后端 rsi_series 对齐） */
+  Monitor.rsiAt = function (values, period) {
+    const n = values.length;
+    if (n < period + 1) return null;
+    let ag = 0, al = 0;
+    for (let i = 1; i <= period; i++) {
+      const d = values[i] - values[i - 1];
+      ag += Math.max(d, 0);
+      al += Math.max(-d, 0);
+    }
+    ag /= period; al /= period;
+    let rsi = al < 1e-12 ? 100 : 100 - 100 / (1 + ag / al);
+    for (let i = period + 1; i < n; i++) {
+      const d = values[i] - values[i - 1];
+      ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+      al = (al * (period - 1) + Math.max(-d, 0)) / period;
+      rsi = al < 1e-12 ? 100 : 100 - 100 / (1 + ag / al);
+    }
+    return rsi;
+  };
+
+  /** RSI 超买/超卖修正信号（与后端 _fuse_with_rsi 对齐） */
+  function _fuseWithRSI(sig, rsi) {
+    if (sig === "buy" && rsi > 75) return "neutral";
+    if (sig === "strong_buy" && rsi > 85) return "buy";
+    if (sig === "sell" && rsi < 25) return "neutral";
+    if (sig === "strong_sell" && rsi < 15) return "sell";
+    return sig;
+  }
+
+  // Cooldown tracking per symbol: { symbol: remainingBars }
+  Monitor._cooldowns = {};
 
   /** BB 融合修正 EMA 动量信号（与后端 _fuse_with_bb 对齐） */
 
@@ -234,13 +269,32 @@
 
         signal = _fuseWithBB(signal, bbNow.percentB, bwExpanding);
 
-        bb = { ...bbNow, bwExpanding, squeeze: false };
+        // Squeeze detection: bandwidth <= bb_period-bar min
+        let squeeze = false;
+        if (vals.length >= bbP * 2) {
+          let minBW = Infinity;
+          for (let j = Math.max(0, vals.length - bbP - 1); j < vals.length - 1; j++) {
+            const bj = Monitor.bollingerAt(vals.slice(0, j + 1), bbP, bbM);
+            if (bj) minBW = Math.min(minBW, bj.bandwidth);
+          }
+          if (bbNow.bandwidth <= minBW) squeeze = true;
+        }
+
+        bb = { ...bbNow, bwExpanding, squeeze };
 
       }
 
     }
 
 
+
+    // RSI fusion
+    const rsiP = th.rsiPeriod || 0;
+    let rsi = null;
+    if (rsiP > 0 && vals.length >= rsiP + 1) {
+      rsi = Monitor.rsiAt(vals, rsiP);
+      if (rsi != null) signal = _fuseWithRSI(signal, rsi);
+    }
 
     return {
 
@@ -258,6 +312,8 @@
 
       bb,
 
+      rsi,
+
     };
 
   };
@@ -265,6 +321,13 @@
 
 
   Monitor.renderSignal = function (prefix, info, decimals) {
+
+    const symbolByPrefix = {
+      hu: "huyin",
+      co: "comex",
+      au: "hujin",
+      cg: "comex_gold",
+    };
 
     const findEl = (...ids) => ids.map(id => el(id)).find(Boolean);
 
@@ -308,7 +371,9 @@
 
       if (noteEl) {
 
-        const lp = Monitor.momentumPeriods?.longP ?? 20;
+        const symbol = symbolByPrefix[prefix];
+
+        const lp = Monitor.getMomentumPeriods(symbol).longP ?? 20;
 
         const minPts = lp + 2;
 
@@ -394,6 +459,16 @@
 
     }
 
+    // RSI 指标渲染
+    const rsiEl = findEl(prefix + "RSI");
+    if (rsiEl && info.rsi != null) {
+      const r = info.rsi;
+      const rcls = r > 70 ? "up" : r < 30 ? "down" : "";
+      rsiEl.innerHTML = `<span class="val ${rcls}">${r.toFixed(1)}</span>`;
+    } else if (rsiEl) {
+      rsiEl.textContent = "--";
+    }
+
   };
 
 
@@ -472,6 +547,8 @@
 
   Monitor.updateMomentumSignals = function (data) {
 
+    const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+
     const hu = data.huyin;
 
     const co = data.comex;
@@ -491,9 +568,10 @@
 
     const coP = Monitor.getMomentumPeriods("comex");
 
-    const huSig = Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"));
+    const _valid = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
+    const huSig = _valid(backendSignals.ag0) ? backendSignals.ag0 : Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"));
 
-    const coSig = Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"));
+    const coSig = _valid(backendSignals.xag) ? backendSignals.xag : Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"));
 
 
 
@@ -525,6 +603,8 @@
 
   Monitor.updateGoldMomentumSignals = function (data) {
 
+    const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+
     const au = data.hujin;
 
     const cg = data.comexGold;
@@ -548,9 +628,10 @@
 
     const cgP = Monitor.getMomentumPeriods("comex_gold");
 
-    const auSig = Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"));
+    const _valid2 = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
+    const auSig = _valid2(backendSignals.au0) ? backendSignals.au0 : Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"));
 
-    const cgSig = Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"));
+    const cgSig = _valid2(backendSignals.xau) ? backendSignals.xau : Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"));
 
 
 
@@ -578,6 +659,24 @@
 
   };
 
+  Monitor.updateCryptoMomentumSignals = function (data) {
+    const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+    const btc = data.btc;
+    app.btcLivePoints = app.btcLivePoints || [];
+    if (btc && !btc.error && !btc.closed && btc.price > 0) _pushIfChanged(app.btcLivePoints, btc.price, btc.timestamp || Date.now(), 180);
+
+    const btcSeries = (app.btcLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const btcP = Monitor.getMomentumPeriods("btc");
+    const _valid3 = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
+    const btcSig = _valid3(backendSignals.btc) ? backendSignals.btc : Monitor.calcMomentum(btcSeries, btcP.shortP, btcP.longP, Monitor.getMomentumThresholds("btc"));
+
+    if (btcSig && Monitor.momentum.btc.last !== btcSig.signal) {
+      Monitor.playSignalTone(btcSig.signal);
+      Monitor.momentum.btc = { last: btcSig.signal, strength: btcSig.strength };
+    }
+
+    Monitor.renderSignal("btc", btcSig, 2);
+  };
 
 
   Monitor.refreshMomentumLabels();

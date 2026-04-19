@@ -3,17 +3,29 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from itertools import product
 from typing import Any, Callable
 
-from backend.config import HAS_AKSHARE, RUNTIME_CONFIG
+from backend.config import RUNTIME_CONFIG
+from backend.instruments import REGISTRY
 from backend.sources import (
     fetch_comex_gold_history,
     fetch_comex_history,
+    fetch_generic_domestic_history,
+    fetch_generic_intl_history,
     fetch_hujin_history,
     fetch_huyin_history,
 )
 from backend.state import state
-from backend.strategies.momentum import MomentumParams, _fuse_with_bb, calc_momentum
+from backend.strategies.momentum import MomentumParams, _fuse_with_bb, _fuse_with_rsi, bollinger_series, calc_momentum, ema_series, rsi_series
+
+@dataclass
+class BacktestConfig:
+    mode: str = "long_only"
+    commission_rate: float = 0.0
+    slippage_pct: float = 0.0
+
 
 _HISTORY_FETCHERS: dict[str, tuple[str, Callable[[], list | None], Any]] = {
     "huyin": ("60m", fetch_huyin_history, state.silver_cache),
@@ -36,76 +48,48 @@ def normalize_bars(raw: list[dict]) -> list[dict]:
 def load_history(symbol: str) -> tuple[list[dict], str, str | None]:
     """
     返回 (bars, interval_label, error_code)。
-    error_code: None 成功；akshare_not_available；unknown_symbol；no_history
+    error_code: None 成功；unknown_symbol；no_history
+    优先使用专用 fetcher，回退到注册表通用获取。
     """
     key = symbol.lower().strip()
-    if key not in _HISTORY_FETCHERS:
+
+    # 1) 已有专用 fetcher（贵金属四个品种）
+    if key in _HISTORY_FETCHERS:
+        interval, fetcher, cache = _HISTORY_FETCHERS[key]
+        with state.cache_lock:
+            data = cache.get("data") or {}
+            hist = data.get("history")
+            if isinstance(hist, list) and len(hist) >= 50:
+                bars = normalize_bars(hist)
+                if len(bars) >= 50:
+                    return bars, interval, None
+        raw = fetcher()
+        if not raw:
+            return [], interval, "no_history"
+        bars = normalize_bars(raw)
+        return (bars, interval, None) if bars else ([], interval, "no_history")
+
+    # 2) 注册表中的品种 → 通用 Sina 获取
+    inst = REGISTRY.get(key)
+    if inst is None:
         return [], "", "unknown_symbol"
-    interval, fetcher, cache = _HISTORY_FETCHERS[key]
 
-    if not HAS_AKSHARE:
-        return [], interval, "akshare_not_available"
-
-    with state.cache_lock:
-        data = cache.get("data") or {}
-        hist = data.get("history")
-        if isinstance(hist, list) and len(hist) >= 50:
-            bars = normalize_bars(hist)
-            if len(bars) >= 50:
-                return bars, interval, None
-
-    raw = fetcher()
+    ak_symbol = inst.sina_code.replace("nf_", "").replace("hf_", "")
+    if inst.is_intl:
+        raw = fetch_generic_intl_history(ak_symbol, inst.decimals)
+        interval = "1d"
+    else:
+        raw = fetch_generic_domestic_history(ak_symbol, inst.decimals)
+        interval = "60m"
     if not raw:
         return [], interval, "no_history"
     bars = normalize_bars(raw)
-    if not bars:
-        return [], interval, "no_history"
-    return bars, interval, None
+    return (bars, interval, None) if bars else ([], interval, "no_history")
 
 
-def _incremental_ema(prices: list[float], period: int) -> list[float | None]:
-    """O(n) EMA with SMA seed, returns list aligned with prices."""
-    n = len(prices)
-    if n == 0:
-        return []
-    k = 2.0 / (period + 1)
-    out: list[float | None] = [None] * n
-    if n >= period:
-        seed = sum(prices[:period]) / period
-        out[period - 1] = seed
-        for i in range(period, n):
-            out[i] = prices[i] * k + out[i - 1] * (1 - k)  # type: ignore[operator]
-    else:
-        out[0] = prices[0]
-        for i in range(1, n):
-            out[i] = prices[i] * k + out[i - 1] * (1 - k)  # type: ignore[operator]
-    return out
-
-
-def _incremental_bb(
-    prices: list[float], period: int, mult: float,
-) -> list[dict | None]:
-    """O(n*period) rolling Bollinger Band, returns list aligned with prices."""
-    n = len(prices)
-    out: list[dict | None] = [None] * n
-    if n < period or period < 2:
-        return out
-    # running sum / sum-of-squares for O(n) amortised
-    for i in range(period - 1, n):
-        window = prices[i - period + 1: i + 1]
-        sma = sum(window) / period
-        var = sum((x - sma) ** 2 for x in window) / period
-        std = math.sqrt(var)
-        upper = sma + mult * std
-        lower = sma - mult * std
-        bw = upper - lower
-        pct_b = (prices[i] - lower) / bw if bw > 1e-12 else 0.5
-        bandwidth = bw / sma * 100 if sma > 0 else 0.0
-        out[i] = {"percentB": pct_b, "bandwidth": bandwidth}
-    return out
-
-
-def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) -> dict[str, Any]:
+def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None) -> dict[str, Any]:
+    cfg = config or BacktestConfig()
+    cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
     min_len = params.long_p + 2
     equity_curve: list[dict[str, Any]] = []
     trades: list[dict[str, Any]] = []
@@ -114,9 +98,10 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
     position_long = False
 
     prices = [float(b["y"]) for b in bars]
-    ema_s = _incremental_ema(prices, params.short_p)
-    ema_l = _incremental_ema(prices, params.long_p)
-    bb_data = _incremental_bb(prices, params.bb_period, params.bb_mult) if params.bb_period > 0 else [None] * len(prices)
+    ema_s = ema_series(prices, params.short_p)
+    ema_l = ema_series(prices, params.long_p)
+    bb_data = bollinger_series(prices, params.bb_period, params.bb_mult) if params.bb_period > 0 else [None] * len(prices)
+    rsi_data = rsi_series(prices, params.rsi_period) if params.rsi_period > 0 else [None] * len(prices)
 
     cooldown_remaining = 0
 
@@ -151,18 +136,22 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
             bw_exp = bb_prev is not None and bb_now["bandwidth"] > bb_prev["bandwidth"]
             sig = _fuse_with_bb(sig, bb_now["percentB"], bw_exp)
 
+        rsi_val = rsi_data[i] if i < len(rsi_data) else None
+        if rsi_val is not None:
+            sig = _fuse_with_rsi(sig, rsi_val)
+
         target_long = sig in ("strong_buy", "buy")
 
         if cooldown_remaining > 0:
             cooldown_remaining -= 1
         elif target_long and not position_long and cash > 0 and price > 0:
-            shares = cash / price
+            shares = cash * cost_factor / price
             cash = 0.0
             position_long = True
             cooldown_remaining = params.cooldown_bars
             trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": sig})
         elif not target_long and position_long and shares > 0 and price > 0:
-            cash = shares * price
+            cash = shares * price * cost_factor
             trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": sig})
             shares = 0.0
             position_long = False
@@ -172,6 +161,8 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams) ->
         equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
 
     metrics = _compute_metrics(equity_curve, trades, bars)
+    if cfg.commission_rate > 0 or cfg.slippage_pct > 0:
+        metrics["note"] = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" + metrics.get("note", "")
     return {"equity": equity_curve, "trades": trades, "metrics": metrics}
 
 
@@ -195,17 +186,22 @@ def _compute_metrics(
         if peak > 0:
             max_dd = max(max_dd, (peak - e) / peak)
 
-    last_buy: float | None = None
+    last_entry: float | None = None
+    last_side: str = ""
     completed = 0
     wins = 0
     for tr in trades:
-        if tr["action"] == "buy":
-            last_buy = float(tr["price"])
-        elif tr["action"] == "sell" and last_buy is not None:
+        if tr["action"] in ("buy", "short"):
+            last_entry = float(tr["price"])
+            last_side = tr["action"]
+        elif tr["action"] in ("sell", "cover") and last_entry is not None:
             completed += 1
-            if float(tr["price"]) > last_buy:
+            if last_side == "buy" and float(tr["price"]) > last_entry:
                 wins += 1
-            last_buy = None
+            elif last_side == "short" and float(tr["price"]) < last_entry:
+                wins += 1
+            last_entry = None
+            last_side = ""
 
     t0 = equity_curve[0]["t"]
     t1 = equity_curve[-1]["t"]
@@ -220,7 +216,7 @@ def _compute_metrics(
     return {
         "totalReturnPct": round(total_return_pct, 4),
         "maxDrawdownPct": round(max_dd * 100, 4),
-        "sellCount": sum(1 for tr in trades if tr["action"] == "sell"),
+        "sellCount": sum(1 for tr in trades if tr["action"] in ("sell", "cover")),
         "roundTripCount": completed,
         "winRatePct": round(wins / completed * 100, 2) if completed > 0 else None,
         "annualizedReturnPct": round(ann, 4) if ann is not None else None,
@@ -260,6 +256,11 @@ def _annualized_sharpe(equity_curve: list[dict[str, Any]], span_years: float) ->
     return (mean_r / std_r) * math.sqrt(periods_per_year)
 
 
+def momentum_params_for_symbol(symbol: str) -> MomentumParams:
+    """从配置文件构建品种级别动量参数（无请求体覆盖）。"""
+    return momentum_params_from_body({}, symbol)
+
+
 def momentum_params_from_body(body: dict, symbol: str | None = None) -> MomentumParams:
     """
     从请求体和配置文件构建动量参数，支持品种级别配置。
@@ -274,10 +275,14 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
     # 获取默认配置
     defaults = config.get("default") if isinstance(config.get("default"), dict) else config
     
+    # 品种 ID 别名映射（instrument ID → config key）
+    _aliases = {"ag0": "huyin", "xag": "comex", "au0": "hujin", "xau": "comex_gold"}
+    resolved = _aliases.get(symbol, symbol) if symbol else symbol
+    
     # 获取品种特定配置并合并
     symbol_config = {}
-    if symbol and symbol in config and isinstance(config[symbol], dict):
-        symbol_config = config[symbol]
+    if resolved and resolved in config and isinstance(config[resolved], dict):
+        symbol_config = config[resolved]
     
     # 合并默认配置和品种配置
     merged = {**defaults, **symbol_config}
@@ -295,4 +300,173 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 0))),
         bb_period=int(p.get("bb_period", merged.get("bb_period", 20))),
         bb_mult=float(p.get("bb_mult", merged.get("bb_mult", 2.0))),
+        rsi_period=int(p.get("rsi_period", merged.get("rsi_period", 14))),
     )
+
+
+def backtest_config_from_body(body: dict) -> BacktestConfig:
+    return BacktestConfig(
+        mode=str(body.get("mode", "long_only")).strip().lower(),
+        commission_rate=float(body.get("commission_rate", 0.0)),
+        slippage_pct=float(body.get("slippage_pct", 0.0)),
+    )
+
+
+# ── Long-Short 回测 ─────────────────────────────────────────────────
+
+def run_momentum_long_short_backtest(
+    bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    """Long-Short: buy/strong_buy → long, sell/strong_sell → short, neutral → flat."""
+    cfg = config or BacktestConfig()
+    cost = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
+    min_len = params.long_p + 2
+    equity_curve: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
+    prices = [float(b["y"]) for b in bars]
+    ema_s = ema_series(prices, params.short_p)
+    ema_l = ema_series(prices, params.long_p)
+    bb_data = bollinger_series(prices, params.bb_period, params.bb_mult) if params.bb_period > 0 else [None] * len(prices)
+    rsi_data = rsi_series(prices, params.rsi_period) if params.rsi_period > 0 else [None] * len(prices)
+    pos = 0  # -1 short, 0 flat, +1 long
+    entry_p = 0.0
+    capital = 1.0
+    cooldown = 0
+
+    for i in range(len(bars)):
+        t, px = bars[i]["t"], float(bars[i]["y"])
+        if pos == 1 and entry_p > 0:
+            eq = capital * px / entry_p
+        elif pos == -1 and entry_p > 0:
+            eq = capital * max(0.0, 2.0 - px / entry_p)
+        else:
+            eq = capital
+        if i + 1 < min_len:
+            equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
+            continue
+        ls, ll, ps = ema_s[i], ema_l[i], ema_s[i - 1]
+        if ls is None or ll is None or ps is None:
+            equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
+            continue
+        sp = ((ls - ll) / ll) * 100 if ll else 0.0
+        slp = ((ls - ps) / ps) * 100 if ps else 0.0
+        sig = "neutral"
+        if ls > ll and sp > params.spread_entry and slp > params.slope_entry:
+            sig = "strong_buy" if sp > params.spread_strong else "buy"
+        elif ls < ll and sp < -params.spread_entry and slp < -params.slope_entry:
+            sig = "strong_sell" if sp < -params.spread_strong else "sell"
+        bb_now = bb_data[i] if i < len(bb_data) else None
+        bb_prev = bb_data[i - 1] if i > 0 and i - 1 < len(bb_data) else None
+        if bb_now:
+            sig = _fuse_with_bb(sig, bb_now["percentB"], bb_prev is not None and bb_now["bandwidth"] > bb_prev["bandwidth"])
+        rsi_v = rsi_data[i] if i < len(rsi_data) else None
+        if rsi_v is not None:
+            sig = _fuse_with_rsi(sig, rsi_v)
+
+        tgt = 1 if sig in ("strong_buy", "buy") else (-1 if sig in ("strong_sell", "sell") else 0)
+        if cooldown > 0:
+            cooldown -= 1
+        elif tgt != pos and px > 0:
+            if pos == 1 and entry_p > 0:
+                capital *= (px / entry_p) * cost
+                trades.append({"action": "sell", "t": t, "price": round(px, 6), "signal": sig})
+            elif pos == -1 and entry_p > 0:
+                capital *= max(0.0, 2.0 - px / entry_p) * cost
+                trades.append({"action": "cover", "t": t, "price": round(px, 6), "signal": sig})
+            if tgt != 0:
+                capital *= cost
+                entry_p = px
+                trades.append({"action": "buy" if tgt == 1 else "short", "t": t, "price": round(px, 6), "signal": sig})
+            else:
+                entry_p = 0.0
+            pos = tgt
+            cooldown = params.cooldown_bars
+            eq = capital
+        equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
+
+    metrics = _compute_metrics(equity_curve, trades, bars)
+    metrics["mode"] = "long_short"
+    cost_str = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" if (cfg.commission_rate > 0 or cfg.slippage_pct > 0) else "不计手续费与滑点；"
+    metrics["note"] = f"Long-Short，{cost_str}年化按首尾时间线性外推；夏普仅供参考。"
+    return {"equity": equity_curve, "trades": trades, "metrics": metrics}
+
+
+# ── 统一调度 ─────────────────────────────────────────────────────────
+
+def run_momentum_backtest(
+    bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or BacktestConfig()
+    if cfg.mode == "long_short":
+        return run_momentum_long_short_backtest(bars, params, cfg)
+    return run_momentum_long_only_backtest(bars, params, cfg)
+
+
+# ── Grid Search ──────────────────────────────────────────────────────
+
+def run_grid_search(
+    bars: list[dict],
+    grid_params: dict[str, list],
+    base_params: dict | None = None,
+    config: BacktestConfig | None = None,
+    top_n: int = 10,
+) -> list[dict[str, Any]]:
+    """Grid search over parameter space, returns top N by Sharpe ratio."""
+    bp = base_params or {}
+    names = sorted(grid_params.keys())
+    combos = list(product(*(grid_params[k] for k in names)))
+    if len(combos) > 500:
+        combos = combos[:500]
+    results: list[dict[str, Any]] = []
+    for combo in combos:
+        override = {**bp, **dict(zip(names, combo))}
+        try:
+            params = MomentumParams(
+                short_p=int(override.get("short_p", 5)),
+                long_p=int(override.get("long_p", 20)),
+                spread_entry=float(override.get("spread_entry", 0.10)),
+                spread_strong=float(override.get("spread_strong", 0.35)),
+                slope_entry=float(override.get("slope_entry", 0.02)),
+                strength_multiplier=float(override.get("strength_multiplier", 120.0)),
+                cooldown_bars=int(override.get("cooldown_bars", 0)),
+                bb_period=int(override.get("bb_period", 20)),
+                bb_mult=float(override.get("bb_mult", 2.0)),
+                rsi_period=int(override.get("rsi_period", 14)),
+            )
+        except (TypeError, ValueError):
+            continue
+        result = run_momentum_backtest(bars, params, config)
+        m = result.get("metrics", {})
+        results.append({
+            "params": {"short_p": params.short_p, "long_p": params.long_p,
+                       "spread_entry": params.spread_entry, "spread_strong": params.spread_strong,
+                       "slope_entry": params.slope_entry, "bb_period": params.bb_period,
+                       "rsi_period": params.rsi_period},
+            "metrics": {"sharpeRatio": m.get("sharpeRatio"), "totalReturnPct": m.get("totalReturnPct"),
+                        "maxDrawdownPct": m.get("maxDrawdownPct"), "winRatePct": m.get("winRatePct"),
+                        "roundTripCount": m.get("roundTripCount")},
+        })
+    results.sort(key=lambda r: r["metrics"].get("sharpeRatio") or -999, reverse=True)
+    return results[:top_n]
+
+
+# ── Walk-Forward ─────────────────────────────────────────────────────
+
+def run_walk_forward(
+    bars: list[dict],
+    params: MomentumParams,
+    config: BacktestConfig | None = None,
+    train_ratio: float = 0.7,
+) -> dict[str, Any]:
+    """Train/test split walk-forward validation."""
+    n = len(bars)
+    split = int(n * train_ratio)
+    min_bars = params.long_p + 10
+    if split < min_bars or n - split < min_bars:
+        return {"error": "insufficient_data", "need": min_bars, "train": split, "test": n - split}
+    train_result = run_momentum_backtest(bars[:split], params, config)
+    test_result = run_momentum_backtest(bars[split:], params, config)
+    return {
+        "in_sample": {"bars": split, "metrics": train_result["metrics"]},
+        "out_of_sample": {"bars": n - split, "metrics": test_result["metrics"]},
+    }

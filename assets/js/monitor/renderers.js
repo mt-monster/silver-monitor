@@ -48,13 +48,14 @@
 
     renderTickTable({ countId, bodyId, rows, priceDecimals }) {
       const formatTime = ts => new Date(ts).toLocaleTimeString("zh-CN", { hour12: false });
+      const esc = dom.escapeHtml;
       dom.setText(countId, rows.length + " ticks");
       dom.setHtml(
         bodyId,
         rows
           .map(
             row =>
-              `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(priceDecimals)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${row.source}</td></tr>`
+              `<tr><td>${formatTime(row.ts)}</td><td>${row.price.toFixed(priceDecimals)}</td><td class="pct ${row.pct > 0 ? "up" : row.pct < 0 ? "down" : ""}">${row.pct > 0 ? "+" : ""}${row.pct.toFixed(3)}%</td><td>${esc(row.source)}</td></tr>`
           )
           .join("")
       );

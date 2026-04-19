@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>贵金属行情监控 | Precious Metal Monitor</title>
+<title>商品行情监控 | Commodity Monitor</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
@@ -23,7 +23,7 @@
   <div class="header">
     <div class="header-left">
       <div class="dot-live" id="liveDot"></div>
-      <h1>贵金属行情监控</h1>
+      <h1>商品行情监控</h1>
     </div>
     <div class="header-right">
       <a class="header-nav" href="strategy.html">策略管理</a>
@@ -37,16 +37,106 @@
 
   <!-- Tab Bar -->
   <div class="tab-bar">
-    <button class="tab-btn active-silver" id="tabSilver" onclick="switchTab('silver')">🥈 白银监控</button>
+    <button class="tab-btn active-dashboard" id="tabDashboard" onclick="switchTab('dashboard')">📊 全品类看板</button>
+    <button class="tab-btn" id="tabSilver" onclick="switchTab('silver')">🥈 白银监控</button>
     <button class="tab-btn" id="tabGold" onclick="switchTab('gold')">🥇 黄金监控</button>
+    <button class="tab-btn" id="tabCrypto" onclick="switchTab('crypto')">₿ 加密货币</button>
+  </div>
+
+  <!-- ════ Dashboard Tab ════ -->
+  <div class="tab-content active" id="dashboardTab">
+    <!-- Category Filter -->
+    <div class="dash-cat-bar" id="dashCatBar"></div>
+    <!-- Instrument Grid -->
+    <div class="dash-grid" id="dashGrid">
+      <div class="dash-loading">加载中...</div>
+    </div>
+    <div class="dash-footer">
+      <span id="dashCount">--</span> 个品种 · 数据每 <span id="dashInterval">3</span>秒刷新
+    </div>
+  </div>
+
+  <!-- ════ Detail Tab (dynamic) ════ -->
+  <div class="tab-content" id="detailTab">
+    <div class="detail-back-row">
+      <button class="btn-back" onclick="switchTab('dashboard')">← 返回看板</button>
+      <span class="detail-title" id="detailTitle">--</span>
+    </div>
+    <!-- Price Card -->
+    <div class="price-row" style="grid-template-columns:1fr 1fr">
+      <div class="card" id="dtCard">
+        <div class="card-label" id="dtLabel">--</div>
+        <div class="price-main" id="dtPrice">--</div>
+        <div class="price-change" id="dtChange">--</div>
+        <div class="price-sub" id="dtSub"></div>
+        <div class="card-source" id="dtSource">--</div>
+      </div>
+      <div class="card">
+        <div class="card-label">商品信息</div>
+        <div class="price-sub" style="margin-top:8px;font-size:12px;line-height:2">
+          <div>交易所: <strong id="dtExchange">--</strong></div>
+          <div>币种: <strong id="dtCurrency">--</strong></div>
+          <div>单位: <strong id="dtUnit">--</strong></div>
+          <div>今开: <strong id="dtOpen">--</strong> | 最高: <strong id="dtHigh">--</strong> | 最低: <strong id="dtLow">--</strong></div>
+        </div>
+      </div>
+    </div>
+    <!-- Momentum Signal -->
+    <div class="signal-row" style="grid-template-columns:1fr">
+      <div class="signal-card">
+        <div class="signal-head">
+          <div class="label" id="dtSigLabel">-- 动量信号 <span class="ema-tag">EMA5/20</span></div>
+          <span id="dtSigPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="dtSignalBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span>短线斜率</span><span class="val" id="dtROC">--</span></div>
+            <div class="row"><span>EMA短</span><span class="val" id="dtEmaF">--</span></div>
+            <div class="row"><span>EMA长</span><span class="val" id="dtEmaS">--</span></div>
+            <div class="row"><span>Boll%B</span><span class="val" id="dtBollB">--</span></div>
+            <div class="row"><span>带宽</span><span class="val" id="dtBollBW">--</span></div>
+            <div class="row"><span>RSI</span><span class="val" id="dtRSI">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="dtSigBar" style="width:50%"></div></div>
+        <div class="signal-note" id="dtSigNote">需至少 22 个有效价格点后计算</div>
+        <div style="margin-top:8px">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:4px">信号变化历史</div>
+          <div id="dtSigHistory" style="max-height:140px;overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Real-time Chart -->
+    <div class="chart-row" style="grid-template-columns:1fr">
+      <div class="chart-card">
+        <div class="chart-title"><div class="dot" id="dtChartDot" style="background:#888"></div><span id="dtChartLabel">实时走势</span> <span class="rt-badge">LIVE</span> <span class="rt-count" id="dtRtCount">0点</span></div>
+        <div class="chart-wrap"><canvas id="dtRtChart"></canvas></div>
+      </div>
+    </div>
+    <!-- Tick Records -->
+    <div class="tick-dual-row" style="grid-template-columns:1fr">
+      <div class="tick-col-card">
+        <div class="tick-col-header">
+          <h3 id="dtTickTitle">刷新记录</h3>
+          <span class="count" id="dtTickCount">0 条</span>
+        </div>
+        <div class="tick-table-wrap">
+          <table class="tick-table">
+            <thead><tr><th>时间</th><th>价格</th><th>涨跌%</th></tr></thead>
+            <tbody id="dtTickBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ════ Silver Tab ════ -->
-  <div class="tab-content active" id="silverTab">
+  <div class="tab-content" id="silverTab">
   <!-- Price Cards -->
   <div class="price-row">
     <div class="card" id="huCard">
-      <div class="card-label">🔴 沪银主力 <span class="badge">AG2606</span></div>
+      <div class="card-label">🔴 沪银主力 <span class="badge">AG0</span></div>
       <div class="price-main" id="huPrice">--</div>
       <div class="price-change" id="huChange">--</div>
       <div class="price-sub" id="huSub"></div>
@@ -82,6 +172,7 @@
           <div class="row"><span>EMA20</span><span class="val" id="huEmaS">--</span></div>
           <div class="row"><span>Boll%B</span><span class="val" id="huBollB">--</span></div>
           <div class="row"><span>带宽</span><span class="val" id="huBollBW">--</span></div>
+          <div class="row"><span>RSI</span><span class="val" id="huRSI">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="huSigBar" style="width:50%"></div></div>
@@ -100,6 +191,7 @@
           <div class="row"><span>EMA20</span><span class="val" id="coEmaS">--</span></div>
           <div class="row"><span>Boll%B</span><span class="val" id="coBollB">--</span></div>
           <div class="row"><span>带宽</span><span class="val" id="coBollBW">--</span></div>
+          <div class="row"><span>RSI</span><span class="val" id="coRSI">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="coSigBar" style="width:50%"></div></div>
@@ -269,6 +361,7 @@
           <div class="row"><span>EMA20</span><span class="val" id="auEmaS">--</span></div>
           <div class="row"><span>Boll%B</span><span class="val" id="auBollB">--</span></div>
           <div class="row"><span>带宽</span><span class="val" id="auBollBW">--</span></div>
+          <div class="row"><span>RSI</span><span class="val" id="auRSI">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="auSigBar" style="width:50%"></div></div>
@@ -287,6 +380,7 @@
           <div class="row"><span>EMA20</span><span class="val" id="cgEmaS">--</span></div>
           <div class="row"><span>Boll%B</span><span class="val" id="cgBollB">--</span></div>
           <div class="row"><span>带宽</span><span class="val" id="cgBollBW">--</span></div>
+          <div class="row"><span>RSI</span><span class="val" id="cgRSI">--</span></div>
         </div>
       </div>
       <div class="signal-bar"><div class="signal-bar-inner flat" id="cgSigBar" style="width:50%"></div></div>
@@ -374,6 +468,85 @@
 
   </div><!-- /goldTab -->
 
+  <!-- ════ Crypto Tab ════ -->
+  <div class="tab-content" id="cryptoTab">
+
+    <!-- Price Card -->
+    <div class="price-row">
+      <div class="card" id="btcCard">
+        <div class="card-label">₿ 比特币 <span class="badge">BTC</span></div>
+        <div class="price-main" id="btcPrice">--</div>
+        <div class="price-change" id="btcChange">--</div>
+        <div class="price-sub" id="btcSub"></div>
+        <div class="card-source" id="btcMeta">--</div>
+      </div>
+    </div>
+
+    <!-- Momentum Signal -->
+    <div class="signal-row">
+      <div class="signal-card">
+        <div class="signal-head">
+          <div class="label">₿ BTC 动量信号 <span class="ema-tag">EMA5/15（张口+短线斜率）</span></div>
+          <span id="btcSigPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="btcSignalBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span class="momentum-roc-label">短线斜率</span><span class="val" id="btcROC">--</span></div>
+            <div class="row"><span>EMA5</span><span class="val" id="btcEmaF">--</span></div>
+            <div class="row"><span>EMA15</span><span class="val" id="btcEmaS">--</span></div>
+            <div class="row"><span>Boll%B</span><span class="val" id="btcBollB">--</span></div>
+            <div class="row"><span>带宽</span><span class="val" id="btcBollBW">--</span></div>
+            <div class="row"><span>RSI</span><span class="val" id="btcRSI">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="btcSigBar" style="width:50%"></div></div>
+        <div class="signal-note" id="btcSigNote">需至少 17 个有效价格点后计算</div>
+      </div>
+    </div>
+
+    <!-- Realtime Chart -->
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 实时走势 ($/BTC) <span class="rt-badge">LIVE</span> <span class="rt-count" id="btcRtCount">0点</span></div>
+        <div class="chart-wrap"><canvas id="btcRtChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- History Chart -->
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史走势</div>
+        <div class="chart-wrap"><canvas id="btcChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Volatility Chart -->
+    <div class="vol-row">
+      <div class="chart-card">
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史波动率 (HV20)</div>
+        <div class="chart-wrap"><canvas id="btcVolChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ATR -->
+    <div class="atr-row">
+      <div class="atr-metric">ATR(14): <span id="btcATR">--</span> <div class="atr-bar"><div class="atr-bar-inner" id="btcATRBar"></div></div></div>
+    </div>
+
+    <!-- Tick Table -->
+    <div class="tick-dual-row">
+      <div class="tick-card">
+        <div class="tick-header">BTC 最近 Tick <span class="tick-count" id="btcTickCount">0</span></div>
+        <table class="tick-table">
+          <thead><tr><th>时间</th><th>价格</th><th>涨跌</th><th>来源</th></tr></thead>
+          <tbody id="btcTickBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /cryptoTab -->
+
 </div><!-- /container -->
 
 <script src="assets/js/monitor/core.js"></script>
@@ -384,6 +557,9 @@
 <script src="assets/js/monitor/momentum.js"></script>
 <script src="assets/js/monitor/alerts.js"></script>
 <script src="assets/js/monitor/gold.js"></script>
+<script src="assets/js/monitor/crypto.js"></script>
+<script src="assets/js/monitor/dashboard.js"></script>
+<script src="assets/js/monitor/detail.js"></script>
 <script src="assets/js/monitor/app.js"></script>
 </body>
 </html>

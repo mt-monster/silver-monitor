@@ -36,13 +36,19 @@ def rebuild_all_cache() -> CombinedApiResponse:
         comex = state.comex_silver_cache.get("data")
         hujin = state.gold_cache.get("data")
         comex_gold = state.comex_gold_cache.get("data")
+        btc = state.btc_cache.get("data")
+        signals = {
+            inst_id: dict(sig)
+            for inst_id, sig in state.instrument_signals.items()
+            if sig
+        }
 
     spread_data = {}
     gold_spread_data = {}
     active_sources = []
     hv_series = {"hu": [], "comex": [], "hujin": [], "comex_gold": []}
 
-    for src in [comex, huyin, hujin, comex_gold]:
+    for src in [comex, huyin, hujin, comex_gold, btc]:
         if src and "error" not in src:
             active_sources.append(src.get("source", "?"))
 
@@ -116,6 +122,8 @@ def rebuild_all_cache() -> CombinedApiResponse:
         "huyin": huyin if huyin else {"error": "huyin_no_data"},
         "comexGold": comex_gold if comex_gold else {"error": "comex_gold_no_data"},
         "hujin": hujin if hujin else {"error": "hujin_no_data"},
+        "btc": btc if btc else {"error": "btc_no_data"},
+        "signals": signals,
         "spread": spread_data,
         "goldSpread": gold_spread_data,
         "goldSilverRatio": gold_silver_ratio,

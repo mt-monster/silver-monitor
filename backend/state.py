@@ -1,3 +1,4 @@
+import queue
 import threading
 from dataclasses import dataclass, field
 
@@ -18,6 +19,7 @@ def _alert_stats():
         "comex": {"surge": 0, "drop": 0, "maxJump": 0},
         "hujin": {"surge": 0, "drop": 0, "maxJump": 0},
         "comex_gold": {"surge": 0, "drop": 0, "maxJump": 0},
+        "btc": {"surge": 0, "drop": 0, "maxJump": 0},
     }
 
 
@@ -30,6 +32,7 @@ class AppState:
     silver_cache: dict = field(default_factory=_cache)
     comex_gold_cache: dict = field(default_factory=_cache)
     gold_cache: dict = field(default_factory=_cache)
+    btc_cache: dict = field(default_factory=_cache)
     combined_cache: dict = field(default_factory=_cache)
     usd_cny_cache: dict = field(default_factory=_rate_cache)
 
@@ -42,8 +45,25 @@ class AppState:
     comex_silver_tick_ring: list = field(default_factory=list)
     gold_tick_ring: list = field(default_factory=list)
     comex_gold_tick_ring: list = field(default_factory=list)
+    btc_tick_ring: list = field(default_factory=list)
     alert_history: list = field(default_factory=list)
     alert_stats: dict = field(default_factory=_alert_stats)
+
+    # 通用品种缓存: instrument_id → {"data": {...}, "ts": float}
+    instrument_caches: dict = field(default_factory=dict)
+
+    # 品种价格环形缓冲：instrument_id → list[float]（最近 200 个去重价格，用于计算信号）
+    instrument_price_buffers: dict = field(default_factory=dict)
+
+    # 预计算的动量信号：instrument_id → {"signal": str, "strength": float, ...} | None
+    instrument_signals: dict = field(default_factory=dict)
+
+    # SSE 客户端队列集合：set[queue.SimpleQueue]
+    sse_queues: set = field(default_factory=set)
+    sse_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    # 单调递增版本号，每次数据更新 +1，SSE 用于变更检测
+    data_version: int = 0
 
 
 state = AppState()

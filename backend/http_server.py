@@ -1,12 +1,20 @@
 import json
+import queue
 import random
 import socketserver
 import time
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler
 
-from backend.backtest import load_history, momentum_params_from_body, run_momentum_long_only_backtest
-from backend.config import CST, FAST_POLL, HAS_AKSHARE, RUNTIME_CONFIG, SLOW_POLL, log
+from backend.backtest import (
+    BacktestConfig, load_history, momentum_params_from_body, backtest_config_from_body,
+    run_momentum_backtest, run_momentum_long_only_backtest, run_grid_search, run_walk_forward,
+)
+from backend.config import CST, FAST_POLL, RUNTIME_CONFIG, SLOW_POLL, log, reload_runtime_config
+from backend.infoway import infoway_available, infoway_crypto_available
+from backend.strategies.momentum import MomentumParams, calc_momentum
+from backend.instruments import CATEGORIES, REGISTRY, registry_to_json
+from backend.pollers import sync_precious_to_instrument_caches
 from backend.research.monte_carlo import run_huyin_monte_carlo
 from backend.state import state
 
@@ -22,6 +30,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path == "/api/stream":
+            self._handle_sse()
+            return
         if path.startswith("/api/"):
             self._send_json_api(path)
             return
@@ -37,6 +48,15 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/research/monte-carlo":
             self._handle_research_monte_carlo()
+            return
+        if path == "/api/config/reload":
+            self._handle_config_reload()
+            return
+        if path == "/api/backtest/grid-search":
+            self._handle_grid_search()
+            return
+        if path == "/api/backtest/walk-forward":
+            self._handle_walk_forward()
             return
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
@@ -80,20 +100,12 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
 
             if strategy != "momentum":
                 raise ValueError("only strategy=momentum is supported")
-            if mode != "long_only":
-                raise ValueError("only mode=long_only is supported")
+            if mode not in ("long_only", "long_short"):
+                raise ValueError("mode must be long_only or long_short")
 
             bars, interval, hist_err = load_history(symbol)
             if hist_err == "unknown_symbol":
-                raise ValueError("unknown symbol; use huyin, comex, hujin, comex_gold")
-            if hist_err == "akshare_not_available":
-                self.send_response(503)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(
-                    json.dumps({"ok": False, "error": "akshare_not_available"}).encode()
-                )
-                return
+                raise ValueError(f"unknown symbol: {symbol}")
             if hist_err == "no_history" or not bars:
                 self.send_response(503)
                 self.send_header("Content-Type", "application/json")
@@ -102,7 +114,8 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 return
 
             params = momentum_params_from_body(body, symbol)
-            result = run_momentum_long_only_backtest(bars, params)
+            bt_cfg = backtest_config_from_body(body)
+            result = run_momentum_backtest(bars, params, bt_cfg)
             t0 = int(bars[0]["t"])
             t1 = int(bars[-1]["t"])
             meta = {
@@ -115,7 +128,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 "toMs": t1,
                 "from": datetime.fromtimestamp(t0 / 1000.0, tz=CST).strftime("%Y-%m-%d %H:%M:%S"),
                 "to": datetime.fromtimestamp(t1 / 1000.0, tz=CST).strftime("%Y-%m-%d %H:%M:%S"),
-                "costModel": "none",
+                "costModel": "commission+slippage" if (bt_cfg.commission_rate > 0 or bt_cfg.slippage_pct > 0) else "none",
+                "commissionRate": bt_cfg.commission_rate,
+                "slippagePct": bt_cfg.slippage_pct,
             }
             payload = {"ok": True, "meta": meta, **result}
             self.send_response(200)
@@ -129,6 +144,75 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
         except Exception as exc:
             log.warning(f"[backtest] {exc}")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_config_reload(self):
+        try:
+            cfg = reload_runtime_config()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "config": cfg}, ensure_ascii=False).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[config/reload] {exc}")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_grid_search(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            symbol = (body.get("symbol") or "").strip().lower()
+            grid = body.get("grid", {})
+            if not grid:
+                raise ValueError("grid parameter is required")
+            bars, interval, hist_err = load_history(symbol)
+            if hist_err or not bars:
+                raise ValueError(f"cannot load history: {hist_err or 'empty'}")
+            base_params = body.get("base_params", {})
+            bt_cfg = backtest_config_from_body(body)
+            top_n = int(body.get("top_n", 10))
+            results = run_grid_search(bars, grid, base_params, bt_cfg, top_n)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "ok": True, "results": results, "total_combinations": len(results),
+                "symbol": symbol, "interval": interval,
+            }, ensure_ascii=False, default=str).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[grid-search] {exc}")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_walk_forward(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            symbol = (body.get("symbol") or "").strip().lower()
+            bars, interval, hist_err = load_history(symbol)
+            if hist_err or not bars:
+                raise ValueError(f"cannot load history: {hist_err or 'empty'}")
+            params = momentum_params_from_body(body, symbol)
+            bt_cfg = backtest_config_from_body(body)
+            train_ratio = float(body.get("train_ratio", 0.7))
+            result = run_walk_forward(bars, params, bt_cfg, train_ratio)
+            if "error" in result:
+                raise ValueError(result["error"])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, **result, "symbol": symbol, "interval": interval},
+                                        ensure_ascii=False, default=str).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[walk-forward] {exc}")
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -259,73 +343,199 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
 
-    def _send_json_api(self, path):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.end_headers()
+    # ── GET API route handlers ──────────────────────────────────────────
 
-        if path == "/api/comex":
-            data = state.comex_silver_cache.get("data")
-        elif path in ("/api/huyin", "/api/ag", "/api/silver"):
-            data = state.silver_cache.get("data")
-        elif path == "/api/hujin":
-            data = state.gold_cache.get("data")
-        elif path == "/api/comex_gold":
-            data = state.comex_gold_cache.get("data")
-        elif path == "/api/all":
-            data = state.combined_cache.get("data")
-        elif path == "/api/status":
-            data = {
-                "status": "running",
-                "fastPoll": FAST_POLL,
-                "slowPoll": SLOW_POLL,
-                "comexCacheAge": round(time.time() - state.comex_silver_cache.get("ts", 0), 1),
-                "huyinCacheAge": round(time.time() - state.silver_cache.get("ts", 0), 1),
-                "hujinCacheAge": round(time.time() - state.gold_cache.get("ts", 0), 1),
-                "comexGoldCacheAge": round(time.time() - state.comex_gold_cache.get("ts", 0), 1),
-                "hasAkshare": HAS_AKSHARE,
-                "serverTime": datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S"),
+    def _api_status(self):
+        return {
+            "status": "running",
+            "fastPoll": FAST_POLL,
+            "slowPoll": SLOW_POLL,
+            "comexCacheAge": round(time.time() - state.comex_silver_cache.get("ts", 0), 1),
+            "huyinCacheAge": round(time.time() - state.silver_cache.get("ts", 0), 1),
+            "hujinCacheAge": round(time.time() - state.gold_cache.get("ts", 0), 1),
+            "comexGoldCacheAge": round(time.time() - state.comex_gold_cache.get("ts", 0), 1),
+            "hasInfoway": infoway_available(),
+            "serverTime": datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    def _api_alerts(self):
+        with state.alerts_lock:
+            alerts = list(state.alert_history)
+            stats = dict(state.alert_stats)
+            hu_ring = list(state.silver_tick_ring)
+            co_ring = list(state.comex_silver_tick_ring)
+            au_ring = list(state.gold_tick_ring)
+            cg_ring = list(state.comex_gold_tick_ring)
+        return {
+            "alerts": alerts,
+            "count": len(alerts),
+            "threshold": state.tick_jump_threshold,
+            "stats": stats,
+            "huTickRing": hu_ring,
+            "comexTickRing": co_ring,
+            "hujinTickRing": au_ring,
+            "comexGoldTickRing": cg_ring,
+        }
+
+    def _api_instruments(self):
+        sync_precious_to_instrument_caches()
+        with state.cache_lock:
+            caches_snap = dict(state.instrument_caches)
+            signals_snap = dict(state.instrument_signals)
+        instruments = []
+        for inst_id, inst in REGISTRY.items():
+            cache = caches_snap.get(inst_id, {})
+            d = cache.get("data") or {}
+            entry = {
+                "id": inst_id,
+                "name": inst.name,
+                "category": inst.category,
+                "exchange": inst.exchange,
+                "currency": inst.currency,
+                "unit": inst.unit,
+                "decimals": inst.decimals,
+                "color": inst.color,
+                "price": d.get("price"),
+                "prevClose": d.get("prevClose"),
+                "change": d.get("change"),
+                "changePercent": d.get("changePercent"),
+                "open": d.get("open"),
+                "high": d.get("high"),
+                "low": d.get("low"),
+                "volume": d.get("volume"),
+                "timestamp": d.get("timestamp"),
+                "datetime_cst": d.get("datetime_cst"),
+                "closed": d.get("closed", False),
             }
-        elif path == "/api/alerts":
-            with state.alerts_lock:
-                alerts = list(state.alert_history)
-                stats = dict(state.alert_stats)
-                hu_ring = list(state.silver_tick_ring)
-                co_ring = list(state.comex_silver_tick_ring)
-                au_ring = list(state.gold_tick_ring)
-                cg_ring = list(state.comex_gold_tick_ring)
-            data = {
-                "alerts": alerts,
-                "count": len(alerts),
-                "threshold": state.tick_jump_threshold,
-                "stats": stats,
-                "huTickRing": hu_ring,
-                "comexTickRing": co_ring,
-                "hujinTickRing": au_ring,
-                "comexGoldTickRing": cg_ring,
-            }
-        elif path == "/api/research/huyin":
-            data = self._research_huyin_context()
-        elif path == "/api/sources":
-            data = {
-                "available": [
-                    {"id": "sina-ag0", "name": "Sina AG0", "type": "沪银实时", "authRequired": False, "status": "active"},
-                    {"id": "sina-xag", "name": "Sina XAG", "type": "COMEX银实时", "authRequired": False, "status": "active"},
-                    {"id": "sina-au0", "name": "Sina AU0", "type": "沪金实时", "authRequired": False, "status": "active"},
-                    {"id": "sina-xau", "name": "Sina XAU", "type": "COMEX金实时", "authRequired": False, "status": "active"},
-                    {
-                        "id": "akshare",
-                        "name": "AKShare History",
-                        "type": "AG/AU/XAG/XAU history",
-                        "authRequired": False,
-                        "status": "active" if HAS_AKSHARE else "not_installed",
-                    },
-                ]
-            }
+            sig = signals_snap.get(inst_id)
+            if sig:
+                entry["signal"] = sig.get("signal")
+                entry["signalStrength"] = sig.get("strength")
+                entry["signalInfo"] = sig
+            instruments.append(entry)
+        return {"instruments": instruments, "categories": CATEGORIES}
+
+    def _api_sources(self):
+        return {
+            "available": [
+                {"id": "sina-ag0", "name": "Sina AG0", "type": "沪银实时", "authRequired": False, "status": "active"},
+                {"id": "sina-xag", "name": "Sina XAG", "type": "COMEX银实时", "authRequired": False, "status": "active"},
+                {"id": "sina-au0", "name": "Sina AU0", "type": "沪金实时", "authRequired": False, "status": "active"},
+                {"id": "sina-xau", "name": "Sina XAU", "type": "COMEX金实时", "authRequired": False, "status": "active"},
+                {
+                    "id": "infoway",
+                    "name": "Infoway WebSocket",
+                    "type": "COMEX银/金实时推送",
+                    "authRequired": True,
+                    "status": "active" if infoway_available() else "disconnected",
+                },
+                {
+                    "id": "infoway-crypto",
+                    "name": "Infoway Crypto WebSocket",
+                    "type": "加密货币实时推送",
+                    "authRequired": True,
+                    "status": "active" if infoway_crypto_available() else "disconnected",
+                },
+            ]
+        }
+
+    def _api_comex(self):
+        return state.comex_silver_cache.get("data")
+
+    def _api_huyin(self):
+        return state.silver_cache.get("data")
+
+    def _api_hujin(self):
+        return state.gold_cache.get("data")
+
+    def _api_comex_gold(self):
+        return state.comex_gold_cache.get("data")
+
+    def _api_btc(self):
+        return state.btc_cache.get("data")
+
+    def _api_all(self):
+        data = dict(state.combined_cache.get("data") or {})
+        with state.cache_lock:
+            signals_snap = dict(state.instrument_signals)
+        signals = {}
+        for inst_id in ("ag0", "xag", "au0", "xau", "btc"):
+            sig = signals_snap.get(inst_id)
+            if sig:
+                signals[inst_id] = sig
+        if signals:
+            data["signals"] = signals
+        return data
+
+    def _api_instruments_registry(self):
+        return {"registry": registry_to_json(), "categories": CATEGORIES}
+
+    _GET_ROUTES = {
+        "/api/comex": _api_comex,
+        "/api/huyin": _api_huyin,
+        "/api/ag": _api_huyin,
+        "/api/silver": _api_huyin,
+        "/api/hujin": _api_hujin,
+        "/api/comex_gold": _api_comex_gold,
+        "/api/btc": _api_btc,
+        "/api/all": _api_all,
+        "/api/status": _api_status,
+        "/api/alerts": _api_alerts,
+        "/api/research/huyin": _research_huyin_context,
+        "/api/instruments": _api_instruments,
+        "/api/instruments/registry": _api_instruments_registry,
+        "/api/sources": _api_sources,
+    }
+
+    # ── GET API dispatch ─────────────────────────────────────────────
+
+    def _send_json_api(self, path):
+        handler = self._GET_ROUTES.get(path)
+        if handler:
+            data = handler(self)
+        elif path.startswith("/api/instrument/"):
+            inst_id = path.split("/")[-1]
+            with state.cache_lock:
+                cache = state.instrument_caches.get(inst_id, {})
+                data = cache.get("data") or {"error": "not_found", "id": inst_id}
         else:
             data = {"error": "not_found", "path": path}
 
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"))
+
+    def _handle_sse(self):
+        """Server-Sent Events 长连接：推送实时数据变更。"""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-Accel-Buffering", "no")  # nginx 兼容
+        super().end_headers()  # 跳过自定义 end_headers 避免重复 CORS
+
+        q: queue.SimpleQueue = queue.SimpleQueue()
+        with state.sse_lock:
+            state.sse_queues.add(q)
+        try:
+            # 发送初始连接确认
+            self.wfile.write(b"event: connected\ndata: {\"ok\":true}\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    msg = q.get(timeout=15)
+                    self.wfile.write(msg.encode("utf-8"))
+                    self.wfile.flush()
+                except queue.Empty:
+                    # 心跳保活
+                    self.wfile.write(f": heartbeat {int(time.time())}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            with state.sse_lock:
+                state.sse_queues.discard(q)
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")

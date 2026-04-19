@@ -1,11 +1,11 @@
 """
-Precious Metal Monitor Server v6.0 — 贵金属行情监控
+Commodity Monitor Server v7.0 — 商品全品类行情监控
 =============================================
-支持: 白银 (AG/XAG) + 黄金 (AU/XAU)
-快数据（3秒更新）: 新浪沪银/沪金 + 新浪XAG/XAU
-慢数据（60秒更新）: akshare分钟线/日线 + 新浪汇率
+支持: 贵金属 / 有色金属 / 黑色系 / 能源化工 / 农产品 / 国际
+快数据（3秒）: 新浪 Sina 实时行情 + iFinD/Infoway COMEX
+慢数据（60秒）: Sina 历史K线 + 新浪汇率
+数据源: Sina / iFinD / Infoway WebSocket
 所有 API 立即返回缓存数据（非阻塞）
-Windows IPv4 专用绑定
 
 启动: python server.py
 访问: http://127.0.0.1:8765/
@@ -14,42 +14,47 @@ Windows IPv4 专用绑定
 from backend.bootstrap import prime_caches
 from backend.config import FAST_POLL, PORT, SERVER_HOST, SLOW_POLL, log
 from backend.http_server import MonitorRequestHandler, ThreadedHttpServer
-from backend.pollers import FastDataPoller, SlowDataPoller
+from backend.infoway import infoway_start, infoway_stop, infoway_crypto_start
+from backend.instruments import REGISTRY
+from backend.pollers import CommodityPoller, FastDataPoller, SlowDataPoller
 from backend.state import state
 
 
 def build_startup_banner():
-    return """
+    n = len(REGISTRY)
+    return f"""
     ══════════════════════════════════════════════════════
-       Precious Metal Monitor Server v6.0
-       Silver (AG/XAG) + Gold (AU/XAU)
+       Commodity Monitor Server v7.0
+       {n} instruments across 6 categories
     ──────────────────────────────────────────────────────
-       Fast poll: %ds (Sina AG0/XAG/AU0/XAU → akshare)
-       Slow poll: %ds (akshare history + Sina USDCNY)
+       Fast poll: {FAST_POLL}s (Precious metals + all commodities)
+       Slow poll: {SLOW_POLL}s (Sina history + USDCNY)
+       Data: Sina / iFinD / Infoway WS
     ──────────────────────────────────────────────────────
-       Alert: 3-Tick jump > %.1f%%
-       Bind: %s:%d
+       Alert: 3-Tick jump > {state.tick_jump_threshold:.1f}%
+       Bind: {SERVER_HOST}:{PORT}
        Endpoints:
-       GET /              Frontend
-       GET /api/all       Combined (Silver+Gold+Spread+HV)
-       GET /api/huyin     HuYin AG JSON
-       GET /api/comex     COMEX Silver JSON
-       GET /api/hujin     HuJin AU JSON
-       GET /api/comex_gold COMEX Gold JSON
-       GET /api/alerts    Alert History
-       GET /api/status    Service Status
+       GET /api/instruments   All commodity prices
+       GET /api/instrument/X  Single instrument
+       GET /api/all           Precious metals combined
+       GET /api/alerts        Alert history
+       GET /api/status        Service status
     ══════════════════════════════════════════════════════
-    """ % (FAST_POLL, SLOW_POLL, state.tick_jump_threshold, SERVER_HOST, PORT)
+    """
 
 
 def main():
     print(build_startup_banner())
+    infoway_start()
+    infoway_crypto_start()
     prime_caches()
 
     fast_poller = FastDataPoller()
     fast_poller.start()
     slow_poller = SlowDataPoller()
     slow_poller.start()
+    commodity_poller = CommodityPoller(interval=FAST_POLL)
+    commodity_poller.start()
 
     try:
         server = ThreadedHttpServer((SERVER_HOST, PORT), MonitorRequestHandler)
@@ -64,13 +69,26 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down...")
+        log.info("Received KeyboardInterrupt, shutting down...")
+    except Exception as exc:
+        log.error(f"serve_forever crashed: {exc}", exc_info=True)
+    finally:
+        log.info("Shutting down pollers and server...")
         fast_poller.stop()
         slow_poller.stop()
+        commodity_poller.stop()
         fast_poller.join(timeout=3)
         slow_poller.join(timeout=3)
+        commodity_poller.join(timeout=3)
         server.shutdown()
-        print("Stopped.")
+        # Logout iFinD session if active
+        try:
+            from backend.ifind import client as ifind_client
+            ifind_client.logout()
+        except Exception:
+            pass
+        infoway_stop()
+        log.info("Server stopped.")
 
 
 if __name__ == "__main__":

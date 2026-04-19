@@ -6,34 +6,120 @@
     return document.getElementById(id);
   }
 
-  function showError(msg) {
-    const box = el("strategyError");
-    if (!msg) {
-      box.style.display = "none";
-      box.textContent = "";
-      return;
-    }
+  function showError(msg, boxId) {
+    const box = el(boxId || "strategyError");
+    if (!box) return;
+    if (!msg) { box.style.display = "none"; box.textContent = ""; return; }
     box.style.display = "block";
     box.textContent = msg;
   }
 
+  // 旧 symbol 名到注册表 id 的映射
+  const _ALIASES = { huyin: "ag0", comex: "xag", hujin: "au0", comex_gold: "xau" };
+
   function collectBody() {
+    const rawSym = el("symbolSelect").value;
+    const symbol = _ALIASES[rawSym] || rawSym;
     return {
       strategy: el("strategySelect").value,
-      symbol: el("symbolSelect").value,
-      mode: "long_only",
+      symbol: symbol,
+      mode: el("modeSelect").value,
+      commission_rate: Number(el("commissionRate").value) / 100,
+      slippage_pct: Number(el("slippagePct").value) / 100,
       params: {
         short_p: Number(el("shortP").value),
         long_p: Number(el("longP").value),
         spread_entry: Number(el("spreadEntry").value),
         spread_strong: Number(el("spreadStrong").value),
         slope_entry: Number(el("slopeEntry").value),
+        bb_period: Number(el("bbPeriod").value),
+        bb_mult: Number(el("bbMult").value),
+        rsi_period: Number(el("rsiPeriod").value),
+        cooldown_bars: Number(el("cooldownBars").value),
       },
     };
   }
 
-  function renderMetrics(meta, metrics) {
-    const grid = el("metricGrid");
+  const _CAT_ORDER = {
+    precious_metals: { name: "贵金属", order: 0 },
+    base_metals:     { name: "有色金属", order: 1 },
+    ferrous:         { name: "黑色系", order: 2 },
+    energy:          { name: "能源化工", order: 3 },
+    agriculture:     { name: "农产品", order: 4 },
+    international:   { name: "国际", order: 5 },
+  };
+
+  async function populateSymbols() {
+    try {
+      await Monitor.loadRuntimeConfig();
+      Monitor.apiBase = Monitor.getApiBase();
+      const resp = await fetch(`${Monitor.apiBase}/api/instruments/registry?t=${Date.now()}`);
+      const data = await resp.json();
+      const registry = data.registry || [];
+      const categories = data.categories || {};
+      const sel = el("symbolSelect");
+      sel.innerHTML = "";
+
+      // group by category
+      const grouped = {};
+      registry.forEach(function (inst) {
+        if (!grouped[inst.category]) grouped[inst.category] = [];
+        grouped[inst.category].push(inst);
+      });
+
+      // sort categories
+      const cats = Object.keys(grouped);
+      cats.sort(function (a, b) {
+        return ((_CAT_ORDER[a] || {}).order || 99) - ((_CAT_ORDER[b] || {}).order || 99);
+      });
+
+      cats.forEach(function (cat) {
+        const meta = categories[cat] || _CAT_ORDER[cat] || {};
+        const grp = document.createElement("optgroup");
+        grp.label = (meta.icon || "") + " " + (meta.name || cat);
+        grouped[cat].forEach(function (inst) {
+          const opt = document.createElement("option");
+          opt.value = inst.id;
+          opt.textContent = inst.name + " (" + inst.exchange + ")";
+          opt.dataset.category = inst.category;
+          grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+      });
+
+      // default to ag0
+      if (sel.querySelector('option[value="ag0"]')) sel.value = "ag0";
+
+      // Auto-fill params on symbol change
+      sel.addEventListener("change", applySymbolDefaults);
+    } catch (err) {
+      console.error("[strategy] populate symbols failed:", err);
+      const sel = el("symbolSelect");
+      sel.innerHTML = '<option value="ag0">沪银 (SHFE)</option><option value="au0">沪金 (SHFE)</option><option value="xag">伦敦银 (COMEX)</option><option value="xau">伦敦金 (COMEX)</option>';
+    }
+  }
+
+  function applySymbolDefaults() {
+    const sel = el("symbolSelect");
+    const opt = sel.options[sel.selectedIndex];
+    const sym = sel.value;
+    const cat = opt ? opt.dataset.category : null;
+    const th = Monitor.getMomentumThresholds ? Monitor.getMomentumThresholds(sym, cat) : {};
+    const per = Monitor.getMomentumPeriods ? Monitor.getMomentumPeriods(sym, cat) : {};
+    const set = (id, v) => { const n = el(id); if (n && v != null) n.value = v; };
+    set("shortP", per.shortP);
+    set("longP", per.longP);
+    set("spreadEntry", th.spreadEntry);
+    set("spreadStrong", th.spreadStrong);
+    set("slopeEntry", th.slopeEntry);
+    set("bbPeriod", th.bbPeriod);
+    set("bbMult", th.bbMult);
+    set("rsiPeriod", th.rsiPeriod);
+    set("cooldownBars", th.cooldownBars);
+  }
+
+  function renderMetrics(meta, metrics, gridId, metaId) {
+    const grid = el(gridId || "metricGrid");
     grid.style.display = "grid";
     const cells = [
       ["总收益率 %", metrics.totalReturnPct],
@@ -50,7 +136,9 @@
           `<div class="metric-card"><div class="label">${label}</div><div class="value">${val}</div></div>`
       )
       .join("");
-    el("strategyMeta").textContent = `${meta.symbol} | ${meta.interval} | ${meta.from} → ${meta.to} | K线 ${meta.bars} | ${metrics.note || ""}`;
+    if (metaId && meta) {
+      el(metaId).textContent = `${meta.symbol || ""} | ${meta.interval || ""} | ${meta.from || ""} → ${meta.to || ""} | K线 ${meta.bars || ""} | ${metrics.note || ""}`;
+    }
   }
 
   function renderTrades(trades) {
@@ -117,7 +205,6 @@
     const btn = el("runBacktestBtn");
     btn.disabled = true;
     try {
-      await Monitor.loadRuntimeConfig();
       Monitor.apiBase = Monitor.getApiBase();
       const resp = await fetch(`${Monitor.apiBase}/api/backtest`, {
         method: "POST",
@@ -137,7 +224,7 @@
       if (!payload.ok) {
         throw new Error(payload.error || "回测失败");
       }
-      renderMetrics(payload.meta, payload.metrics);
+      renderMetrics(payload.meta, payload.metrics, "metricGrid", "strategyMeta");
       renderChart(payload.equity);
       renderTrades(payload.trades);
     } catch (err) {
@@ -151,25 +238,144 @@
     }
   }
 
+  // ── Walk-Forward ────────────────────────────────────────────────────
+  async function runWalkForward() {
+    showError("", "wfError");
+    const panel = el("wfPanel");
+    panel.style.display = "block";
+    el("wfGrid").innerHTML = "";
+    el("wfMeta").textContent = "运行中...";
+    const btn = el("runWalkForwardBtn");
+    btn.disabled = true;
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const body = collectBody();
+      body.train_ratio = 0.7;
+      const resp = await fetch(`${Monitor.apiBase}/api/backtest/walk-forward`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) throw new Error(payload.error || "walk-forward 失败");
+
+      const is = payload.in_sample;
+      const os = payload.out_of_sample;
+      const isM = is.metrics;
+      const osM = os.metrics;
+      const rows = [
+        ["", "In-Sample", "Out-of-Sample"],
+        ["K线数", is.bars, os.bars],
+        ["总收益%", isM.totalReturnPct, osM.totalReturnPct],
+        ["最大回撤%", isM.maxDrawdownPct, osM.maxDrawdownPct],
+        ["夏普", isM.sharpeRatio ?? "—", osM.sharpeRatio ?? "—"],
+        ["年化%", isM.annualizedReturnPct ?? "—", osM.annualizedReturnPct ?? "—"],
+        ["胜率%", isM.winRatePct ?? "—", osM.winRatePct ?? "—"],
+      ];
+      const grid = el("wfGrid");
+      grid.innerHTML = rows.map(r =>
+        `<div class="metric-card"><div class="label">${r[0]}</div></div>` +
+        `<div class="metric-card"><div class="value">${r[1]}</div></div>` +
+        `<div class="metric-card"><div class="value">${r[2]}</div></div>`
+      ).join("");
+      grid.style.gridTemplateColumns = "1fr 1fr 1fr";
+      el("wfMeta").textContent = `${payload.symbol} | ${payload.interval} | 训练70% / 测试30%`;
+    } catch (err) {
+      showError(err.message || String(err), "wfError");
+      el("wfMeta").textContent = "";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── Grid Search ─────────────────────────────────────────────────────
+  function parseCSV(s) {
+    return s.split(",").map(v => Number(v.trim())).filter(v => !isNaN(v));
+  }
+
+  async function runGridSearch() {
+    showError("", "gsError");
+    const btn = el("runGridSearchBtn");
+    btn.disabled = true;
+    el("gsResultsWrap").style.display = "none";
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const grid = {};
+      const sp = parseCSV(el("gsShortP").value);
+      const lp = parseCSV(el("gsLongP").value);
+      const se = parseCSV(el("gsSpreadEntry").value);
+      if (sp.length) grid.short_p = sp;
+      if (lp.length) grid.long_p = lp;
+      if (se.length) grid.spread_entry = se;
+      if (!Object.keys(grid).length) throw new Error("至少指定一个参数范围");
+
+      const body = collectBody();
+      const payload_body = {
+        symbol: body.symbol,
+        mode: body.mode,
+        commission_rate: body.commission_rate,
+        slippage_pct: body.slippage_pct,
+        grid: grid,
+        base_params: body.params,
+        top_n: Number(el("gsTopN").value) || 10,
+      };
+
+      const resp = await fetch(`${Monitor.apiBase}/api/backtest/grid-search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload_body),
+      });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) throw new Error(payload.error || "grid search 失败");
+
+      const results = payload.results || [];
+      if (!results.length) throw new Error("无结果");
+      const tbody = el("gsResultsBody");
+      tbody.innerHTML = results.map((r, i) => {
+        const p = r.params;
+        const m = r.metrics;
+        return `<tr>
+          <td>${i + 1}</td>
+          <td>${p.short_p}</td><td>${p.long_p}</td><td>${p.spread_entry}</td>
+          <td>${m.sharpeRatio ?? "—"}</td><td>${m.totalReturnPct ?? "—"}</td>
+          <td>${m.maxDrawdownPct ?? "—"}</td><td>${m.winRatePct ?? "—"}</td>
+          <td>${m.roundTripCount ?? 0}</td>
+        </tr>`;
+      }).join("");
+      el("gsResultsWrap").style.display = "block";
+    } catch (err) {
+      showError(err.message || String(err), "gsError");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   function applyMomentumFormFromConfig() {
     const m = Monitor.momentumConfig;
     if (!m) return;
+    const d = m.default || m;
     const set = (id, v) => {
       const node = el(id);
-      if (node != null) node.value = v;
+      if (node != null && v != null) node.value = v;
     };
-    set("shortP", m.short_p);
-    set("longP", m.long_p);
-    set("spreadEntry", m.spread_entry);
-    set("spreadStrong", m.spread_strong);
-    set("slopeEntry", m.slope_entry != null ? m.slope_entry : 0.02);
+    set("shortP", d.short_p);
+    set("longP", d.long_p);
+    set("spreadEntry", d.spread_entry);
+    set("spreadStrong", d.spread_strong);
+    set("slopeEntry", d.slope_entry != null ? d.slope_entry : 0.02);
+    set("bbPeriod", d.bb_period != null ? d.bb_period : 20);
+    set("bbMult", d.bb_mult != null ? d.bb_mult : 2.0);
+    set("rsiPeriod", d.rsi_period != null ? d.rsi_period : 14);
+    set("cooldownBars", d.cooldown_bars != null ? d.cooldown_bars : 0);
   }
 
   async function init() {
-    await Monitor.loadRuntimeConfig();
-    Monitor.apiBase = Monitor.getApiBase();
+    await populateSymbols();
     applyMomentumFormFromConfig();
+    applySymbolDefaults();
     el("runBacktestBtn").addEventListener("click", runBacktest);
+    el("runWalkForwardBtn").addEventListener("click", runWalkForward);
+    el("runGridSearchBtn").addEventListener("click", runGridSearch);
   }
 
   init();

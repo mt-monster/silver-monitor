@@ -11,6 +11,7 @@ def check_tick_jump(market, price, source="unknown"):
         "comex": ("comex_silver_tick_ring", "COMEX银", "元/kg"),
         "hujin": ("gold_tick_ring", "沪金", "元/克"),
         "comex_gold": ("comex_gold_tick_ring", "COMEX金", "$/oz"),
+        "btc": ("btc_tick_ring", "BTC", "$/BTC"),
     }
     ring_attr, market_name, unit = ring_map.get(market, ("silver_tick_ring", market, ""))
     tick_ring = list(getattr(state, ring_attr))

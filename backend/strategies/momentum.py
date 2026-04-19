@@ -18,6 +18,7 @@ class MomentumParams:
     cooldown_bars: int = 0
     bb_period: int = 20
     bb_mult: float = 2.0
+    rsi_period: int = 14  # 0 = disabled
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -36,6 +37,35 @@ def ema_series(values: list[float], period: int) -> list[float]:
     for i in range(1, n):
         out_simple.append(values[i] * k + out_simple[i - 1] * (1 - k))
     return out_simple
+
+
+def rsi_series(values: list[float], period: int = 14) -> list[float | None]:
+    """RSI via Wilder's smoothed moving average."""
+    n = len(values)
+    if n < period + 1:
+        return [None] * n
+    out: list[float | None] = [None] * n
+    gains = []
+    losses = []
+    for i in range(1, period + 1):
+        diff = values[i] - values[i - 1]
+        gains.append(max(diff, 0.0))
+        losses.append(max(-diff, 0.0))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss < 1e-12:
+        out[period] = 100.0
+    else:
+        out[period] = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+    for i in range(period + 1, n):
+        diff = values[i] - values[i - 1]
+        avg_gain = (avg_gain * (period - 1) + max(diff, 0.0)) / period
+        avg_loss = (avg_loss * (period - 1) + max(-diff, 0.0)) / period
+        if avg_loss < 1e-12:
+            out[i] = 100.0
+        else:
+            out[i] = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+    return out
 
 
 def bollinger_at(values: list[float], period: int, mult: float) -> dict[str, Any] | None:
@@ -60,6 +90,26 @@ def bollinger_at(values: list[float], period: int, mult: float) -> dict[str, Any
         "percentB": pct_b,
         "bandwidth": bandwidth,
     }
+
+
+def bollinger_series(values: list[float], period: int, mult: float) -> list[dict | None]:
+    """Rolling Bollinger Band for all bars, returns list aligned with values."""
+    n = len(values)
+    out: list[dict | None] = [None] * n
+    if n < period or period < 2:
+        return out
+    for i in range(period - 1, n):
+        window = values[i - period + 1: i + 1]
+        sma = sum(window) / period
+        var = sum((x - sma) ** 2 for x in window) / period
+        std = math.sqrt(var)
+        upper = sma + mult * std
+        lower = sma - mult * std
+        bw = upper - lower
+        pct_b = (values[i] - lower) / bw if bw > 1e-12 else 0.5
+        bandwidth = bw / sma * 100 if sma > 0 else 0.0
+        out[i] = {"percentB": pct_b, "bandwidth": bandwidth}
+    return out
 
 
 def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool) -> str:
@@ -91,6 +141,20 @@ def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool) -> str:
     elif sig == "strong_sell":
         if pct_b < 0.0:
             sig = "sell"
+    return sig
+
+
+def _fuse_with_rsi(base_signal: str, rsi: float) -> str:
+    """RSI 超买/超卖修正信号。"""
+    sig = base_signal
+    if sig == "buy" and rsi > 75:
+        sig = "neutral"
+    elif sig == "strong_buy" and rsi > 85:
+        sig = "buy"
+    elif sig == "sell" and rsi < 25:
+        sig = "neutral"
+    elif sig == "strong_sell" and rsi < 15:
+        sig = "sell"
     return sig
 
 
@@ -152,6 +216,14 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
                 "squeeze": squeeze,
             }
 
+    # RSI 融合
+    rsi_val: float | None = None
+    if p.rsi_period > 0 and len(vals) >= p.rsi_period + 1:
+        rsi_all = rsi_series(vals, p.rsi_period)
+        rsi_val = rsi_all[-1]
+        if rsi_val is not None:
+            signal = _fuse_with_rsi(signal, rsi_val)
+
     strength = min(100.0, abs(spread_pct) * p.strength_multiplier)
 
     result: dict[str, Any] = {
@@ -164,4 +236,6 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
     }
     if bb_info:
         result["bb"] = bb_info
+    if rsi_val is not None:
+        result["rsi"] = rsi_val
     return result

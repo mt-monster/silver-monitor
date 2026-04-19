@@ -111,15 +111,18 @@
     } else {
       el("alertList").innerHTML = alerts
         .slice(0, 30)
-        .map(a => `<div class="alert-row">
+        .map(a => {
+          const esc = Monitor.dom.escapeHtml;
+          return `<div class="alert-row">
             <span class="time">${new Date(a.timestamp).toLocaleTimeString("zh-CN", { hour12: false })}</span>
-            <span class="market-dot ${a.market}"></span>
-            <span>${a.marketName}</span>
-            <span class="dir ${a.direction === "急涨" ? "up" : "down"}">${a.direction}</span>
+            <span class="market-dot ${esc(a.market)}"></span>
+            <span>${esc(a.marketName)}</span>
+            <span class="dir ${a.direction === "急涨" ? "up" : "down"}">${esc(a.direction)}</span>
             <span class="pct">${a.changePercent > 0 ? "+" : ""}${a.changePercent.toFixed(3)}%</span>
             <span class="prices">${a.fromPrice}→${a.toPrice}</span>
-            <span class="sev ${a.severity}">${a.severity}</span>
-          </div>`)
+            <span class="sev ${esc(a.severity)}">${esc(a.severity)}</span>
+          </div>`;
+        })
         .join("");
     }
 

@@ -2,33 +2,31 @@ from datetime import datetime
 
 from backend.config import CST
 
+# ── SHFE 交易时段（分钟表示） ────────────────────────────────────────
+# (start_minutes, end_minutes, description)
+_SHFE_DAY_SESSIONS = [
+    (9 * 60,       11 * 60 + 30, "早盘交易"),     # 09:00 - 11:30
+    (13 * 60 + 30, 15 * 60,      "午盘交易"),     # 13:30 - 15:00
+]
+_SHFE_NIGHT_START = 21 * 60       # 21:00
+_SHFE_NIGHT_END   = 2 * 60 + 30  # 次日 02:30
+
+
+def _to_minutes(hour, minute):
+    return hour * 60 + minute
+
 
 def is_huyin_trading():
     now = datetime.now(CST)
-    weekday = now.weekday()
-    hour = now.hour
-    minute = now.minute
-
-    if weekday >= 5:
+    if now.weekday() >= 5:
         return False
-
-    if 9 <= hour < 11:
+    t = _to_minutes(now.hour, now.minute)
+    for start, end, _ in _SHFE_DAY_SESSIONS:
+        if start <= t <= end:
+            return True
+    # 夜盘跨零点
+    if t >= _SHFE_NIGHT_START or t <= _SHFE_NIGHT_END:
         return True
-    if hour == 11 and minute <= 30:
-        return True
-
-    if 13 <= hour < 15:
-        return True
-    if hour == 13 and minute < 30:
-        return False
-
-    if hour >= 21:
-        return True
-    if 0 <= hour < 2:
-        return True
-    if hour == 2 and minute <= 30:
-        return True
-
     return False
 
 
@@ -58,27 +56,27 @@ def is_comex_trading():
 def get_trading_status(market):
     now = datetime.now(CST)
     weekday = now.weekday()
-    hour = now.hour
-    minute = now.minute
+    t = _to_minutes(now.hour, now.minute)
 
     if market == "huyin":
         if weekday >= 5:
             return ("closed", "周末休市")
 
-        if (hour == 9 and minute >= 0) or (9 < hour < 11) or (hour == 11 and minute < 31):
-            return ("open", "早盘交易")
-        if (hour == 13 and minute >= 30) or (13 < hour < 15):
-            return ("open", "午盘交易")
-        if hour >= 21 or hour < 2 or (hour == 2 and minute < 30):
+        for start, end, desc in _SHFE_DAY_SESSIONS:
+            if start <= t <= end:
+                return ("open", desc)
+        if t >= _SHFE_NIGHT_START or t <= _SHFE_NIGHT_END:
             return ("open", "夜盘交易")
 
-        if hour < 9:
+        # 休市期间提示下一个交易时段
+        if t < _SHFE_DAY_SESSIONS[0][0]:
             return ("closed", "待早盘开盘 09:00")
-        if hour < 13 or (hour == 13 and minute < 30):
+        if t < _SHFE_DAY_SESSIONS[1][0]:
             return ("closed", "午盘 13:30 开盘")
         return ("closed", "夜盘 21:00 开盘")
 
     if market == "comex":
+        hour = now.hour
         if weekday < 5:
             return ("open", "SI=F 活跃交易")
         if weekday == 5:

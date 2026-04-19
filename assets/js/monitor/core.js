@@ -13,6 +13,7 @@
       spread_entry: 0.1,
       spread_strong: 0.35,
       slope_entry: 0.02,
+      rsi_period: 14,
     },
   };
 
@@ -45,8 +46,13 @@
     comexGoldLivePoints: [],
     goldRealtimePoints: [],
     comexGoldRealtimePoints: [],
+    btcTicks: [],
+    lastBtcPrice: null,
+    btcLivePoints: [],
+    btcRealtimePoints: [],
     activeTab: "silver",
     isGoldChartsInitialized: false,
+    isCryptoChartsInitialized: false,
   };
 
   Monitor.el = function (id) {
@@ -87,53 +93,89 @@
         strengthMul: Number(defaults.strength_multiplier != null ? defaults.strength_multiplier : 120),
         bbPeriod: Number(defaults.bb_period != null ? defaults.bb_period : 20),
         bbMult: Number(defaults.bb_mult != null ? defaults.bb_mult : 2.0),
+        rsiPeriod: Number(defaults.rsi_period != null ? defaults.rsi_period : 14),
+        cooldownBars: Number(defaults.cooldown_bars != null ? defaults.cooldown_bars : 0),
       },
     };
 
-    // 加载品种特定阈值
-    const symbols = ["huyin", "comex", "hujin", "comex_gold"];
-    symbols.forEach(symbol => {
-      if (momentum[symbol]) {
-        Monitor.momentumThresholds[symbol] = {
-          spreadEntry: Number(momentum[symbol].spread_entry ?? defaults.spread_entry),
-          spreadStrong: Number(momentum[symbol].spread_strong ?? defaults.spread_strong),
-          slopeEntry: Number(momentum[symbol].slope_entry ?? defaults.slope_entry ?? 0.02),
-          strengthMul: Number(momentum[symbol].strength_multiplier ?? defaults.strength_multiplier ?? 120),
-          bbPeriod: Number(momentum[symbol].bb_period ?? defaults.bb_period ?? 20),
-          bbMult: Number(momentum[symbol].bb_mult ?? defaults.bb_mult ?? 2.0),
-        };
-      }
+    // 品类默认参数
+    Monitor.categoryDefaults = {};
+    const catDefs = momentum.category_defaults || {};
+    Object.keys(catDefs).forEach(cat => {
+      const c = catDefs[cat];
+      Monitor.categoryDefaults[cat] = {
+        spreadEntry: Number(c.spread_entry ?? defaults.spread_entry),
+        spreadStrong: Number(c.spread_strong ?? defaults.spread_strong),
+        slopeEntry: Number(c.slope_entry ?? defaults.slope_entry ?? 0.02),
+        strengthMul: Number(c.strength_multiplier ?? defaults.strength_multiplier ?? 120),
+        bbPeriod: Number(c.bb_period ?? defaults.bb_period ?? 20),
+        bbMult: Number(c.bb_mult ?? defaults.bb_mult ?? 2.0),
+        rsiPeriod: Number(c.rsi_period ?? defaults.rsi_period ?? 14),
+        cooldownBars: Number(c.cooldown_bars ?? defaults.cooldown_bars ?? 0),
+        shortP: Number(c.short_p ?? defaults.short_p),
+        longP: Number(c.long_p ?? defaults.long_p),
+      };
+    });
+
+    // 加载品种特定阈值（动态发现所有key）
+    Object.keys(momentum).forEach(symbol => {
+      if (symbol === "default" || symbol === "category_defaults" || typeof momentum[symbol] !== "object") return;
+      const s = momentum[symbol];
+      Monitor.momentumThresholds[symbol] = {
+        spreadEntry: Number(s.spread_entry ?? defaults.spread_entry),
+        spreadStrong: Number(s.spread_strong ?? defaults.spread_strong),
+        slopeEntry: Number(s.slope_entry ?? defaults.slope_entry ?? 0.02),
+        strengthMul: Number(s.strength_multiplier ?? defaults.strength_multiplier ?? 120),
+        bbPeriod: Number(s.bb_period ?? defaults.bb_period ?? 20),
+        bbMult: Number(s.bb_mult ?? defaults.bb_mult ?? 2.0),
+        rsiPeriod: Number(s.rsi_period ?? defaults.rsi_period ?? 14),
+        cooldownBars: Number(s.cooldown_bars ?? defaults.cooldown_bars ?? 0),
+      };
     });
 
     // 品种级别 EMA 周期配置
     Monitor.momentumPeriods = {
       default: { shortP: Number(defaults.short_p), longP: Number(defaults.long_p) },
     };
-    symbols.forEach(symbol => {
-      if (momentum[symbol]) {
-        Monitor.momentumPeriods[symbol] = {
-          shortP: Number(momentum[symbol].short_p ?? defaults.short_p),
-          longP: Number(momentum[symbol].long_p ?? defaults.long_p),
-        };
-      }
+    Object.keys(momentum).forEach(symbol => {
+      if (symbol === "default" || symbol === "category_defaults" || typeof momentum[symbol] !== "object") return;
+      Monitor.momentumPeriods[symbol] = {
+        shortP: Number(momentum[symbol].short_p ?? defaults.short_p),
+        longP: Number(momentum[symbol].long_p ?? defaults.long_p),
+      };
     });
     if (typeof Monitor.refreshMomentumLabels === "function") Monitor.refreshMomentumLabels();
   };
 
+  // 品种 ID 别名映射（detail 页用 instrument ID，momentum 页/配置用 legacy key）
+  const _symbolAliases = {
+    ag0: "huyin", xag: "comex", au0: "hujin", xau: "comex_gold",
+    huyin: "huyin", comex: "comex", hujin: "hujin", comex_gold: "comex_gold",
+  };
+
   // 获取特定品种的动量参数（合并default和品种特定参数）
-  Monitor.getMomentumThresholds = function (symbol) {
+  Monitor.getMomentumThresholds = function (symbol, category) {
     const defaults = Monitor.momentumThresholds.default || Monitor.momentumThresholds;
-    if (!symbol || !Monitor.momentumThresholds[symbol]) {
-      return defaults;
+    const key = symbol && _symbolAliases[symbol] || symbol;
+    if (key && Monitor.momentumThresholds[key]) {
+      return { ...defaults, ...Monitor.momentumThresholds[key] };
     }
-    return { ...defaults, ...Monitor.momentumThresholds[symbol] };
+    if (category && Monitor.categoryDefaults && Monitor.categoryDefaults[category]) {
+      return { ...defaults, ...Monitor.categoryDefaults[category] };
+    }
+    return defaults;
   };
 
   // 获取特定品种的 EMA 周期（支持按品种配置）
-  Monitor.getMomentumPeriods = function (symbol) {
+  Monitor.getMomentumPeriods = function (symbol, category) {
     const d = Monitor.momentumPeriods?.default || { shortP: 5, longP: 20 };
-    if (!symbol || !Monitor.momentumPeriods?.[symbol]) return d;
-    return { ...d, ...Monitor.momentumPeriods[symbol] };
+    const key = symbol && _symbolAliases[symbol] || symbol;
+    if (key && Monitor.momentumPeriods?.[key]) return { ...d, ...Monitor.momentumPeriods[key] };
+    if (category && Monitor.categoryDefaults?.[category]) {
+      const c = Monitor.categoryDefaults[category];
+      return { shortP: c.shortP || d.shortP, longP: c.longP || d.longP };
+    }
+    return d;
   };
 
   Monitor.loadRuntimeConfig = async function () {
@@ -152,4 +194,86 @@
   Monitor.defaultRuntimeConfig = defaultConfig;
   Monitor.apiBase = Monitor.getApiBase();
   Monitor.applyRuntimeConfig(defaultConfig);
+
+  // Config hot-reload (every 60s)
+  Monitor._configReloadTimer = null;
+  Monitor.startConfigReload = function (intervalMs) {
+    if (Monitor._configReloadTimer) clearInterval(Monitor._configReloadTimer);
+    Monitor._configReloadTimer = setInterval(async () => {
+      try { await Monitor.loadRuntimeConfig(); } catch (_) {}
+    }, intervalMs || 60000);
+  };
+
+  // ── SSE 实时推送管理 ─────────────────────────────────────────────
+  Monitor.sse = {
+    /** @type {EventSource|null} */
+    _es: null,
+    connected: false,
+    _reconnectTimer: null,
+    _listeners: [],
+  };
+
+  /**
+   * 注册 SSE 数据回调。每次收到 "data" 事件时调用 fn(payload)。
+   */
+  Monitor.sse.on = function (eventName, fn) {
+    Monitor.sse._listeners.push({ event: eventName, fn });
+    if (Monitor.sse._es) {
+      Monitor.sse._es.addEventListener(eventName, function (e) {
+        try { fn(JSON.parse(e.data)); } catch (_) {}
+      });
+    }
+  };
+
+  /**
+   * 建立 SSE 连接。自动重连，连接成功后触发 onConnect 回调。
+   */
+  Monitor.sse.connect = function (onConnect) {
+    if (Monitor.sse._es) {
+      Monitor.sse._es.close();
+      Monitor.sse._es = null;
+    }
+    if (Monitor.sse._reconnectTimer) {
+      clearTimeout(Monitor.sse._reconnectTimer);
+      Monitor.sse._reconnectTimer = null;
+    }
+
+    var url = Monitor.apiBase + "/api/stream";
+    var es;
+    try {
+      es = new EventSource(url);
+    } catch (_) {
+      Monitor.sse.connected = false;
+      return;
+    }
+    Monitor.sse._es = es;
+
+    es.addEventListener("connected", function () {
+      Monitor.sse.connected = true;
+      if (onConnect) onConnect();
+    });
+
+    // 绑定已注册的事件监听器
+    Monitor.sse._listeners.forEach(function (l) {
+      es.addEventListener(l.event, function (e) {
+        try { l.fn(JSON.parse(e.data)); } catch (_) {}
+      });
+    });
+
+    es.onerror = function () {
+      Monitor.sse.connected = false;
+      es.close();
+      Monitor.sse._es = null;
+      // 3 秒后重连
+      Monitor.sse._reconnectTimer = setTimeout(function () {
+        Monitor.sse.connect(onConnect);
+      }, 3000);
+    };
+  };
+
+  Monitor.sse.close = function () {
+    if (Monitor.sse._es) { Monitor.sse._es.close(); Monitor.sse._es = null; }
+    if (Monitor.sse._reconnectTimer) { clearTimeout(Monitor.sse._reconnectTimer); Monitor.sse._reconnectTimer = null; }
+    Monitor.sse.connected = false;
+  };
 })();

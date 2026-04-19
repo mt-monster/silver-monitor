@@ -227,6 +227,52 @@
     app.isGoldChartsInitialized = true;
   };
 
+  Monitor.initializeCryptoCharts = function () {
+    if (app.isCryptoChartsInitialized) return;
+
+    Monitor.charts.btcChart = new Chart(el("btcChart").getContext("2d"), {
+      type: "line",
+      data: { datasets: [{ label: "BTC", data: [], borderColor: "#f7931a", backgroundColor: "rgba(247,147,26,0.08)", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }] },
+      options: { ...Monitor.chartDefaults },
+    });
+
+    Monitor.charts.btcVolatilityChart = new Chart(el("btcVolChart").getContext("2d"), {
+      type: "line",
+      data: { datasets: [{ label: "HV20", data: [], borderColor: "#f7931a", backgroundColor: "rgba(247,147,26,0.10)", borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: true }] },
+      options: {
+        ...Monitor.chartDefaults,
+        scales: {
+          ...Monitor.chartDefaults.scales,
+          y: { ...Monitor.chartDefaults.scales.y, ticks: { ...Monitor.chartDefaults.scales.y.ticks, callback: v => v.toFixed(1) + "%" } },
+        },
+      },
+    });
+
+    Monitor.charts.btcRealtimeChart = new Chart(el("btcRtChart").getContext("2d"), {
+      type: "line",
+      data: { datasets: [{ label: "BTC 实时", data: [], borderColor: "#f7931a", backgroundColor: "rgba(247,147,26,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      options: {
+        ...Monitor.realtimeChartOptions,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "#1c2330",
+            borderColor: "#30363d",
+            borderWidth: 1,
+            titleFont: { size: 10 },
+            bodyFont: { size: 11 },
+            callbacks: {
+              label: ctx => "BTC: $" + ctx.parsed.y.toFixed(2),
+              title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),
+            },
+          },
+        },
+      },
+    });
+
+    app.isCryptoChartsInitialized = true;
+  };
+
   Monitor.resizeVisibleCharts = function () {
     const charts = [
       Monitor.charts.silverChart,
@@ -244,6 +290,13 @@
         Monitor.charts.comexGoldVolatilityChart,
         Monitor.charts.goldRealtimeChart,
         Monitor.charts.comexGoldRealtimeChart
+      );
+    }
+    if (app.isCryptoChartsInitialized) {
+      charts.push(
+        Monitor.charts.btcChart,
+        Monitor.charts.btcVolatilityChart,
+        Monitor.charts.btcRealtimeChart
       );
     }
     charts.filter(Boolean).forEach(chart => chart.resize());

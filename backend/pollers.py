@@ -1,29 +1,83 @@
+import json
+import queue
 import threading
 import time
 from datetime import datetime
 
 from backend.alerts import check_tick_jump
+from backend.instruments import REGISTRY, fetch_instrument, get_enabled_instruments
 from backend.research.samples import append_huyin_research_sample
 from backend.analytics import rebuild_all_cache
-from backend.config import CST, FAST_POLL, SLOW_POLL, log
+from backend.config import CST, FAST_POLL, SLOW_POLL, RUNTIME_CONFIG, log
 from backend.market_hours import get_trading_status
 from backend.sources import (
-    fetch_comex_akshare_realtime,
-    fetch_comex_gold_akshare_realtime,
     fetch_comex_gold_history,
     fetch_comex_gold_sina,
     fetch_comex_history,
     fetch_comex_sina,
-    fetch_hujin_akshare_realtime,
     fetch_hujin_history,
     fetch_hujin_sina,
-    fetch_huyin_akshare_realtime,
     fetch_huyin_history,
     fetch_huyin_sina,
     fetch_usdcny_sina,
 )
+from backend.ifind import fetch_comex_silver_ifind, fetch_comex_gold_ifind
+from backend.infoway import fetch_comex_silver_infoway, fetch_comex_gold_infoway, fetch_btc_infoway
 from backend.state import state
+from backend.strategies.momentum import calc_momentum
 from backend.utils import get_conv, get_conv_gold
+
+
+# 品种 ID → config key 别名（与 backtest.py / core.js 保持一致）
+_SYMBOL_ALIASES = {"ag0": "huyin", "xag": "comex", "au0": "hujin", "xau": "comex_gold"}
+
+
+def _momentum_params_for(inst_id: str):
+    """根据品种 ID 从 RUNTIME_CONFIG 构建动量参数（轻量版，避免循环导入 backtest）。"""
+    from backend.strategies.momentum import MomentumParams
+    config = RUNTIME_CONFIG.get("momentum") or {}
+    defaults = config.get("default") if isinstance(config.get("default"), dict) else config
+    resolved = _SYMBOL_ALIASES.get(inst_id, inst_id)
+    sym_cfg = config.get(resolved, {}) if isinstance(config.get(resolved), dict) else {}
+    m = {**defaults, **sym_cfg}
+    return MomentumParams(
+        short_p=int(m.get("short_p", 5)),
+        long_p=int(m.get("long_p", 20)),
+        spread_entry=float(m.get("spread_entry", 0.10)),
+        spread_strong=float(m.get("spread_strong", 0.35)),
+        slope_entry=float(m.get("slope_entry", 0.02)),
+        strength_multiplier=float(m.get("strength_multiplier", 120.0)),
+        cooldown_bars=int(m.get("cooldown_bars", 0)),
+        bb_period=int(m.get("bb_period", 20)),
+        bb_mult=float(m.get("bb_mult", 2.0)),
+        rsi_period=int(m.get("rsi_period", 14)),
+    )
+
+
+def _recompute_signals(inst_ids: list[str]):
+    """重算指定品种的动量信号，存入 state.instrument_signals。"""
+    with state.cache_lock:
+        for iid in inst_ids:
+            buf = state.instrument_price_buffers.get(iid, [])
+            params = _momentum_params_for(iid)
+            if len(buf) >= params.long_p + 2:
+                state.instrument_signals[iid] = calc_momentum(buf, params)
+            else:
+                state.instrument_signals[iid] = None
+
+
+def _notify_sse(event: str, payload: dict):
+    """向所有 SSE 客户端广播事件。"""
+    msg = f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
+    with state.sse_lock:
+        dead: list[queue.SimpleQueue] = []
+        for q in state.sse_queues:
+            try:
+                q.put_nowait(msg)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            state.sse_queues.discard(q)
 
 
 class FastDataPoller(threading.Thread):
@@ -43,14 +97,10 @@ class FastDataPoller(threading.Thread):
 
                 if hu_status == "open":
                     em = fetch_huyin_sina()
-                    if not em:
-                        em = fetch_huyin_akshare_realtime()
-                        if em:
-                            log.warning("[HuYin] Using akshare 1min as fallback")
                 else:
                     em = {
-                        "symbol": "AG2606",
-                        "name": "沪银主力",
+                        "symbol": "AG0",
+                        "name": "沪银主力连续",
                         "exchange": "SHFE",
                         "currency": "CNY",
                         "unit": "元/kg",
@@ -119,11 +169,15 @@ class FastDataPoller(threading.Thread):
                         check_tick_jump("hu", em["price"], em.get("source", "Sina-AG0"))
 
                 if co_status == "open":
-                    co_fast = fetch_comex_sina()
-                    if not co_fast:
-                        co_fast = fetch_comex_akshare_realtime()
+                    co_fast = fetch_comex_silver_ifind()
+                    if co_fast:
+                        log.debug("[COMEX] Using iFinD as primary source")
+                    else:
+                        co_fast = fetch_comex_silver_infoway()
                         if co_fast:
-                            log.warning("[COMEX] Using akshare daily as fallback")
+                            log.debug("[COMEX] Using Infoway as secondary source")
+                    if not co_fast:
+                        co_fast = fetch_comex_sina()
                 else:
                     co_fast = {
                         "symbol": "SI=F",
@@ -196,14 +250,10 @@ class FastDataPoller(threading.Thread):
 
                 if hu_status == "open":
                     au = fetch_hujin_sina()
-                    if not au:
-                        au = fetch_hujin_akshare_realtime()
-                        if au:
-                            log.warning("[HuJin] Using akshare 1min as fallback")
                 else:
                     au = {
-                        "symbol": "AU2606",
-                        "name": "沪金主力",
+                        "symbol": "AU0",
+                        "name": "沪金主力连续",
                         "exchange": "SHFE",
                         "currency": "CNY",
                         "unit": "元/克",
@@ -262,11 +312,15 @@ class FastDataPoller(threading.Thread):
                         check_tick_jump("hujin", au["price"], au.get("source", "Sina-AU0"))
 
                 if co_status == "open":
-                    co_gold = fetch_comex_gold_sina()
-                    if not co_gold:
-                        co_gold = fetch_comex_gold_akshare_realtime()
+                    co_gold = fetch_comex_gold_ifind()
+                    if co_gold:
+                        log.debug("[COMEX-Gold] Using iFinD as primary source")
+                    else:
+                        co_gold = fetch_comex_gold_infoway()
                         if co_gold:
-                            log.warning("[COMEX-Gold] Using akshare daily as fallback")
+                            log.debug("[COMEX-Gold] Using Infoway as secondary source")
+                    if not co_gold:
+                        co_gold = fetch_comex_gold_sina()
                 else:
                     co_gold = {
                         "symbol": "GC=F",
@@ -323,7 +377,40 @@ class FastDataPoller(threading.Thread):
                             state.comex_gold_cache["ts"] = time.time()
                         check_tick_jump("comex_gold", co_gold["price"], co_gold.get("source", "unknown"))
 
+                # ── BTC (24/7, Infoway crypto only) ──
+                btc_data = fetch_btc_infoway()
+                if btc_data and btc_data.get("price", 0) > 0:
+                    with state.cache_lock:
+                        bt = state.btc_cache.get("data") or {}
+                        bt.update(
+                            {
+                                "price": btc_data["price"],
+                                "priceCny": btc_data.get("priceCny"),
+                                "prevClose": btc_data.get("prevClose"),
+                                "change": btc_data.get("change"),
+                                "changePercent": btc_data.get("changePercent"),
+                                "open": btc_data.get("open"),
+                                "high": btc_data.get("high"),
+                                "low": btc_data.get("low"),
+                                "volume": btc_data.get("volume", 0),
+                                "timestamp": btc_data["timestamp"],
+                                "datetime_cst": btc_data.get("datetime_cst", ""),
+                                "usdCny": btc_data.get("usdCny", state.usd_cny_cache["rate"]),
+                                "source": btc_data.get("source", "Infoway-BTC"),
+                                "closed": False,
+                            }
+                        )
+                        if not bt.get("name"):
+                            bt.update({k: btc_data[k] for k in ["symbol", "name", "exchange", "currency", "unit"] if k in btc_data})
+                        state.btc_cache["data"] = bt
+                        state.btc_cache["ts"] = time.time()
+                    check_tick_jump("btc", btc_data["price"], btc_data.get("source", "Infoway-BTC"))
+
+                _buffer_precious_prices()
+                _recompute_signals(["ag0", "xag", "au0", "xau", "btc"])
                 rebuild_all_cache()
+                state.data_version += 1
+                _notify_sse("data", _build_sse_snapshot())
             except Exception as exc:
                 log.error(f"Fast poll error: {exc}")
 
@@ -355,9 +442,7 @@ class SlowDataPoller(threading.Thread):
                     hu["history"] = hu_hist
                     hu["historyCount"] = len(hu_hist)
                     if not hu.get("source"):
-                        hu["source"] = "akshare-sina"
-                    elif "akshare" not in hu.get("source", ""):
-                        hu["source"] = hu.get("source", "") + "+akshare"
+                        hu["source"] = "Sina-history"
                     if not hu.get("name"):
                         hu.update({"name": "沪银主力", "symbol": "AG0", "exchange": "SHFE", "currency": "CNY", "unit": "元/kg"})
                     state.silver_cache["data"] = hu
@@ -370,9 +455,7 @@ class SlowDataPoller(threading.Thread):
                     co = state.comex_silver_cache.get("data") or {}
                     co["history"] = co_hist
                     if not co.get("source"):
-                        co["source"] = "akshare-XAG"
-                    elif "akshare" not in co.get("source", ""):
-                        co["source"] = co.get("source", "") + "+akshare"
+                        co["source"] = "Sina-history"
                     if not co.get("name"):
                         co.update({"name": "COMEX Silver Futures", "symbol": "SI=F", "exchange": "CME/COMEX", "currency": "CNY", "unit": "元/kg"})
                     state.comex_silver_cache["data"] = co
@@ -386,9 +469,7 @@ class SlowDataPoller(threading.Thread):
                     gd["history"] = au_hist
                     gd["historyCount"] = len(au_hist)
                     if not gd.get("source"):
-                        gd["source"] = "akshare-sina"
-                    elif "akshare" not in gd.get("source", ""):
-                        gd["source"] = gd.get("source", "") + "+akshare"
+                        gd["source"] = "Sina-history"
                     if not gd.get("name"):
                         gd.update({"name": "沪金主力", "symbol": "AU0", "exchange": "SHFE", "currency": "CNY", "unit": "元/克"})
                     state.gold_cache["data"] = gd
@@ -401,9 +482,7 @@ class SlowDataPoller(threading.Thread):
                     cg = state.comex_gold_cache.get("data") or {}
                     cg["history"] = cg_hist
                     if not cg.get("source"):
-                        cg["source"] = "akshare-XAU"
-                    elif "akshare" not in cg.get("source", ""):
-                        cg["source"] = cg.get("source", "") + "+akshare"
+                        cg["source"] = "Sina-history"
                     if not cg.get("name"):
                         cg.update({"name": "COMEX Gold Futures", "symbol": "GC=F", "exchange": "CME/COMEX", "currency": "USD", "unit": "$/oz"})
                     state.comex_gold_cache["data"] = cg
@@ -421,3 +500,144 @@ class SlowDataPoller(threading.Thread):
             rebuild_all_cache()
         except Exception as exc:
             log.error(f"Slow poll error: {exc}")
+
+
+# ── 通用商品全品类轮询 ─────────────────────────────────────────────
+
+# 已由 FastDataPoller 处理的品种（避免重复获取）
+_FAST_COVERED = {"ag0", "au0", "xag", "xau"}
+
+
+class CommodityPoller(threading.Thread):
+    """轮询 REGISTRY 中除贵金属外的所有品种，存入 state.instrument_caches。"""
+
+    def __init__(self, interval: int | None = None):
+        super().__init__(daemon=True)
+        self._stop = threading.Event()
+        self._interval = interval or FAST_POLL
+
+    def stop(self):
+        self._stop.set()
+
+    def run(self):
+        instruments = [i for i in get_enabled_instruments() if i.id not in _FAST_COVERED]
+        log.info(f"CommodityPoller started: {len(instruments)} instruments, {self._interval}s interval")
+        while not self._stop.is_set():
+            try:
+                for inst in instruments:
+                    if self._stop.is_set():
+                        break
+                    data = fetch_instrument(inst)
+                    if data and data.get("price", 0) > 0:
+                        with state.cache_lock:
+                            existing = state.instrument_caches.get(inst.id, {}).get("data") or {}
+                            existing.update(data)
+                            state.instrument_caches[inst.id] = {"data": existing, "ts": time.time()}
+                            # Buffer price for signal computation
+                            _buf = state.instrument_price_buffers.get(inst.id, [])
+                            if not _buf or _buf[-1] != data["price"]:
+                                _buf.append(data["price"])
+                                if len(_buf) > 200:
+                                    _buf = _buf[-200:]
+                                state.instrument_price_buffers[inst.id] = _buf
+                updated_ids = [inst.id for inst in instruments]
+                _recompute_signals(updated_ids)
+                state.data_version += 1
+            except Exception as exc:
+                log.error(f"CommodityPoller error: {exc}")
+            self._stop.wait(self._interval)
+
+
+def _build_sse_snapshot() -> dict:
+    """构建 SSE 推送的精简数据快照（只含价格/涨幅/信号，不含 history 等大字段）。"""
+    snapshot: dict = {"v": state.data_version, "ts": int(time.time() * 1000)}
+
+    # 贵金属四品种 + BTC
+    for key, cache in [("huyin", state.silver_cache), ("comex", state.comex_silver_cache),
+                       ("hujin", state.gold_cache), ("comexGold", state.comex_gold_cache),
+                       ("btc", state.btc_cache)]:
+        d = cache.get("data") or {}
+        snapshot[key] = {
+            "price": d.get("price"),
+            "change": d.get("change"),
+            "changePercent": d.get("changePercent"),
+            "closed": d.get("closed", False),
+            "timestamp": d.get("timestamp"),
+            "datetime_cst": d.get("datetime_cst"),
+            "source": d.get("source"),
+        }
+
+    # 全品种信号
+    sigs = {}
+    with state.cache_lock:
+        for iid, sig in state.instrument_signals.items():
+            if sig:
+                sigs[iid] = sig
+    snapshot["signals"] = sigs
+    return snapshot
+
+
+def _buffer_precious_prices():
+    """将贵金属/BTC 最新价格追加到 instrument_price_buffers（去重），供信号计算使用。"""
+    mapping = {
+        "ag0": state.silver_cache,
+        "xag": state.comex_silver_cache,
+        "au0": state.gold_cache,
+        "xau": state.comex_gold_cache,
+        "btc": state.btc_cache,
+    }
+    with state.cache_lock:
+        for inst_id, cache in mapping.items():
+            d = cache.get("data")
+            if not d or not d.get("price"):
+                continue
+            px = d["price"]
+            buf = state.instrument_price_buffers.get(inst_id, [])
+            if not buf or buf[-1] != px:
+                buf.append(px)
+                if len(buf) > 200:
+                    buf = buf[-200:]
+            state.instrument_price_buffers[inst_id] = buf
+
+
+def sync_precious_to_instrument_caches():
+    """将 FastDataPoller 的贵金属数据同步到 instrument_caches，供统一 API 使用。"""
+    mapping = {
+        "ag0": state.silver_cache,
+        "xag": state.comex_silver_cache,
+        "au0": state.gold_cache,
+        "xau": state.comex_gold_cache,
+    }
+    for inst_id, cache in mapping.items():
+        d = cache.get("data")
+        if d and d.get("price"):
+            inst = REGISTRY.get(inst_id)
+            if inst:
+                merged = {
+                    "id": inst_id,
+                    "name": inst.name,
+                    "exchange": inst.exchange,
+                    "currency": inst.currency,
+                    "unit": inst.unit,
+                    "price": d.get("price"),
+                    "prevClose": d.get("prevClose"),
+                    "change": d.get("change"),
+                    "changePercent": d.get("changePercent"),
+                    "open": d.get("open"),
+                    "high": d.get("high"),
+                    "low": d.get("low"),
+                    "volume": d.get("volume", 0),
+                    "timestamp": d.get("timestamp"),
+                    "datetime_cst": d.get("datetime_cst"),
+                    "source": d.get("source"),
+                    "closed": d.get("closed", False),
+                }
+                state.instrument_caches[inst_id] = {"data": merged, "ts": cache.get("ts", 0)}
+                # Buffer price for signal computation
+                _buf = state.instrument_price_buffers.get(inst_id, [])
+                px = d["price"]
+                if not _buf or _buf[-1] != px:
+                    _buf.append(px)
+                    if len(_buf) > 200:
+                        _buf = _buf[-200:]
+                    state.instrument_price_buffers[inst_id] = _buf

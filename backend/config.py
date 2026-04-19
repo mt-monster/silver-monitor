@@ -47,6 +47,15 @@ def load_runtime_config():
 
 
 RUNTIME_CONFIG = load_runtime_config()
+
+
+def reload_runtime_config() -> dict:
+    """Hot-reload config from disk (called by /api/config/reload)."""
+    global RUNTIME_CONFIG
+    RUNTIME_CONFIG = load_runtime_config()
+    return RUNTIME_CONFIG
+
+
 if "momentum" not in RUNTIME_CONFIG or not isinstance(RUNTIME_CONFIG.get("momentum"), dict):
     RUNTIME_CONFIG["momentum"] = dict(DEFAULT_CONFIG["momentum"])
 if "research" not in RUNTIME_CONFIG or not isinstance(RUNTIME_CONFIG.get("research"), dict):
@@ -65,17 +74,26 @@ FRONTEND_ALERT_POLL_MS = int(RUNTIME_CONFIG["frontend"]["alert_poll_ms"])
 OZ_TO_KG = 32.1507
 OZ_TO_G = 31.1035
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+# File handler — always works, even without a console
+_fh = logging.FileHandler(LOG_DIR / "server.log", encoding="utf-8")
+_fh.setFormatter(_fmt)
+_fh.setLevel(logging.INFO)
+
+# Console handler — may fail if no tty, so wrapped in try
+_ch: logging.Handler | None = None
+try:
+    _ch = logging.StreamHandler()
+    _ch.setFormatter(_fmt)
+    _ch.setLevel(logging.INFO)
+except Exception:
+    pass
+
+logging.basicConfig(level=logging.INFO, handlers=[h for h in (_fh, _ch) if h])
 log = logging.getLogger("silver_monitor")
 
 CST = timezone(timedelta(hours=8))
-
-HAS_AKSHARE = False
-ak = None
-try:
-    import akshare as ak  # type: ignore
-
-    HAS_AKSHARE = True
-    log.info("akshare loaded OK")
-except ImportError:
-    log.warning("akshare not installed! Run: pip install akshare")
