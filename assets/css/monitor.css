@@ -161,6 +161,16 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .tab-content{display:none}
 .tab-content.active{display:block}
 
+/* ── Crypto tab layout ── */
+.crypto-top-row{display:grid;grid-template-columns:1fr 1.4fr;gap:12px;margin-bottom:12px}
+.crypto-chart-full{margin-bottom:12px}
+.crypto-chart-full .chart-wrap{height:300px}
+.crypto-bottom-row{display:grid;grid-template-columns:260px 1fr;gap:12px;margin-bottom:12px}
+.crypto-bottom-row .atr-card{display:flex;flex-direction:column;justify-content:center}
+.atr-bar-fill.btc{background:linear-gradient(90deg,#f7931a,#f7a94d)}
+.crypto-bottom-row .tick-table-wrap{max-height:420px;overflow-y:auto}
+@media(max-width:900px){.crypto-top-row,.crypto-bottom-row{grid-template-columns:1fr}}
+
 /* Strategy / backtest page */
 .header-nav{font-size:12px;color:var(--blue);text-decoration:none;margin-right:10px}
 .header-nav:hover{text-decoration:underline}

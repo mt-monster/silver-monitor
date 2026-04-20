@@ -298,6 +298,64 @@ def fetch_comex_silver_ifind() -> dict | None:
         return None
 
 
+def fetch_huyin_ifind() -> dict | None:
+    """Fetch 沪银主力 (AG0) real-time quote via iFinD.
+
+    Returns a dict compatible with the existing fetch_huyin_sina() format,
+    or None on failure.
+    """
+    cfg = _ifind_cfg()
+    code = cfg.get("huyin_code", "AG00.SHF")
+
+    row = client.realtime_quote(code)
+    if not row:
+        return None
+
+    try:
+        price = _float(row.get("latest"))
+        if not price or price <= 0:
+            return None
+
+        prev_close = _float(row.get("preClose")) or price
+        open_p = _float(row.get("open")) or price
+        high_p = _float(row.get("high")) or price
+        low_p = _float(row.get("low")) or price
+        change = _float(row.get("change")) or round(price - prev_close, 1)
+        change_pct = _float(row.get("changeRatio")) or (
+            round(change / prev_close * 100, 2) if prev_close else 0
+        )
+        vol = _float(row.get("vol"))
+        volume = int(vol) if vol else 0
+
+        dt_str = row.get("datetime", "")
+        if not dt_str:
+            dt_str = datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S")
+
+        result = {
+            "source": "iFinD-AG0",
+            "symbol": "AG0",
+            "name": "沪银主力连续",
+            "exchange": "SHFE",
+            "currency": "CNY",
+            "unit": "元/kg",
+            "price": round(price, 1),
+            "prevClose": round(prev_close, 1),
+            "change": round(change, 1),
+            "changePercent": round(change_pct, 2),
+            "open": round(open_p, 1),
+            "high": round(high_p, 1),
+            "low": round(low_p, 1),
+            "volume": volume,
+            "timestamp": int(time.time() * 1000),
+            "datetime_cst": dt_str,
+        }
+        log.debug(f"[iFinD/AG0] {price:.1f} 元/kg  chg={change:+.1f}")
+        return result
+    except Exception as exc:
+        log.debug(f"[iFinD] fetch_huyin failed: {exc}")
+        return None
+
+
 def fetch_comex_gold_ifind() -> dict | None:
     """Fetch COMEX gold (XAU) real-time quote via iFinD.
 

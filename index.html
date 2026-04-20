@@ -28,6 +28,7 @@
     <div class="header-right">
       <a class="header-nav" href="strategy.html">策略管理</a>
       <a class="header-nav" href="research.html">实证研究</a>
+      <a class="header-nav" href="admin.html">后台管理</a>
       <span id="debugInfo"></span>
       <button class="btn-refresh" id="refreshBtn" onclick="manualRefresh()" title="手动刷新">
         <span class="icon">⟳</span> 刷新
@@ -471,22 +472,18 @@
   <!-- ════ Crypto Tab ════ -->
   <div class="tab-content" id="cryptoTab">
 
-    <!-- Price Card -->
-    <div class="price-row">
+    <!-- Row 1: Price Card + Signal Card -->
+    <div class="crypto-top-row">
       <div class="card" id="btcCard">
-        <div class="card-label">₿ 比特币 <span class="badge">BTC</span></div>
+        <div class="card-label">₿ 比特币 <span class="badge">BTC/USDT</span> <span class="badge" style="background:rgba(63,185,80,.15);color:var(--green)">24/7</span></div>
         <div class="price-main" id="btcPrice">--</div>
         <div class="price-change" id="btcChange">--</div>
         <div class="price-sub" id="btcSub"></div>
         <div class="card-source" id="btcMeta">--</div>
       </div>
-    </div>
-
-    <!-- Momentum Signal -->
-    <div class="signal-row">
       <div class="signal-card">
         <div class="signal-head">
-          <div class="label">₿ BTC 动量信号 <span class="ema-tag">EMA5/15（张口+短线斜率）</span></div>
+          <div class="label">₿ BTC 动量信号 <span class="ema-tag">EMA5/15</span></div>
           <span id="btcSigPts" style="font-size:9px;color:var(--text3)">--</span>
         </div>
         <div class="signal-body">
@@ -505,43 +502,44 @@
       </div>
     </div>
 
-    <!-- Realtime Chart -->
-    <div class="chart-row">
+    <!-- Row 2: Realtime Chart (full width) -->
+    <div class="crypto-chart-full">
       <div class="chart-card">
-        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 实时走势 ($/BTC) <span class="rt-badge">LIVE</span> <span class="rt-count" id="btcRtCount">0点</span></div>
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 实时走势 ($/BTC) <span class="rt-badge">LIVE</span> <span class="rt-count" id="btcRtCount">0 pts</span></div>
         <div class="chart-wrap"><canvas id="btcRtChart"></canvas></div>
       </div>
     </div>
 
-    <!-- History Chart -->
+    <!-- Row 3: History + Volatility (side by side) -->
     <div class="chart-row">
       <div class="chart-card">
-        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史走势</div>
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史走势 <span class="hist-badge">HISTORY</span></div>
         <div class="chart-wrap"><canvas id="btcChart"></canvas></div>
       </div>
-    </div>
-
-    <!-- Volatility Chart -->
-    <div class="vol-row">
       <div class="chart-card">
-        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史波动率 (HV20)</div>
+        <div class="chart-title"><div class="dot" style="background:#f7931a"></div>BTC 历史波动率 (HV20) <span class="hist-badge">HV</span></div>
         <div class="chart-wrap"><canvas id="btcVolChart"></canvas></div>
       </div>
     </div>
 
-    <!-- ATR -->
-    <div class="atr-row">
-      <div class="atr-metric">ATR(14): <span id="btcATR">--</span> <div class="atr-bar"><div class="atr-bar-inner" id="btcATRBar"></div></div></div>
-    </div>
-
-    <!-- Tick Table -->
-    <div class="tick-dual-row">
-      <div class="tick-card">
-        <div class="tick-header">BTC 最近 Tick <span class="tick-count" id="btcTickCount">0</span></div>
-        <table class="tick-table">
-          <thead><tr><th>时间</th><th>价格</th><th>涨跌</th><th>来源</th></tr></thead>
-          <tbody id="btcTickBody"></tbody>
-        </table>
+    <!-- Row 4: ATR + Tick Table (side by side) -->
+    <div class="crypto-bottom-row">
+      <div class="atr-card">
+        <div class="atr-label">₿ BTC ATR(14)</div>
+        <div class="atr-val" id="btcATR">--</div>
+        <div class="atr-bar"><div class="atr-bar-fill btc" id="btcATRBar" style="width:0%"></div></div>
+      </div>
+      <div class="tick-col-card">
+        <div class="tick-col-header">
+          <h3>₿ BTC 最近 Tick</h3>
+          <span class="count" id="btcTickCount">0 ticks</span>
+        </div>
+        <div class="tick-table-wrap">
+          <table class="tick-table">
+            <thead><tr><th>时间</th><th>价格</th><th>涨跌%</th><th>来源</th></tr></thead>
+            <tbody id="btcTickBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 

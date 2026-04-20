@@ -49,7 +49,7 @@
     if (btc && !btc.error && !btc.closed && btc.price > 0) {
       const pct = app.lastBtcPrice && app.lastBtcPrice > 0 ? ((btc.price - app.lastBtcPrice) / app.lastBtcPrice) * 100 : 0;
       app.btcTicks.unshift({ ts: now, price: btc.price, pct, source: btc.source || "--" });
-      if (app.btcTicks.length > constants.maxTickRecords) app.btcTicks.pop();
+      if (app.btcTicks.length > 20) app.btcTicks.length = 20;
       app.lastBtcPrice = btc.price;
       app.btcRealtimePoints.push({ x: now, y: btc.price });
       if (app.btcRealtimePoints.length > constants.maxRealtimePoints) app.btcRealtimePoints.shift();
@@ -57,6 +57,6 @@
   };
 
   Monitor.renderCryptoTickTables = function () {
-    renderers.renderTickTable({ countId: "btcTickCount", bodyId: "btcTickBody", rows: app.btcTicks, priceDecimals: 2 });
+    renderers.renderTickTable({ countId: "btcTickCount", bodyId: "btcTickBody", rows: app.btcTicks.slice(0, 20), priceDecimals: 2 });
   };
 })();

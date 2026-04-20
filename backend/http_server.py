@@ -14,7 +14,7 @@ from backend.config import CST, FAST_POLL, RUNTIME_CONFIG, SLOW_POLL, log, reloa
 from backend.infoway import infoway_available, infoway_crypto_available
 from backend.strategies.momentum import MomentumParams, calc_momentum
 from backend.instruments import CATEGORIES, REGISTRY, registry_to_json
-from backend.pollers import sync_precious_to_instrument_caches
+from backend.pollers import sync_precious_to_instrument_caches, SOURCE_REGISTRY, SOURCE_LABELS
 from backend.research.monte_carlo import run_huyin_monte_carlo
 from backend.state import state
 
@@ -57,6 +57,15 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/backtest/walk-forward":
             self._handle_walk_forward()
+            return
+        if path == "/api/admin/clear-cache":
+            self._handle_admin_clear_cache()
+            return
+        if path == "/api/admin/test-sources":
+            self._handle_admin_test_sources()
+            return
+        if path == "/api/admin/source-config":
+            self._handle_admin_source_config_post()
             return
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
@@ -343,6 +352,154 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
 
+    # ── Admin handlers ───────────────────────────────────────────────
+
+    def _handle_admin_clear_cache(self):
+        try:
+            with state.cache_lock:
+                for c in (state.silver_cache, state.comex_silver_cache,
+                          state.gold_cache, state.comex_gold_cache,
+                          state.btc_cache, state.combined_cache):
+                    c["data"] = None
+                    c["ts"] = 0
+                state.instrument_caches.clear()
+                state.instrument_price_buffers.clear()
+                state.instrument_signals.clear()
+            with state.alerts_lock:
+                state.silver_tick_ring.clear()
+                state.comex_silver_tick_ring.clear()
+                state.gold_tick_ring.clear()
+                state.comex_gold_tick_ring.clear()
+                state.btc_tick_ring.clear()
+                state.alert_history.clear()
+                state.alert_stats = {
+                    k: {"surge": 0, "drop": 0, "maxJump": 0}
+                    for k in state.alert_stats
+                }
+            state.huyin_research_samples.clear()
+            log.info("[Admin] All caches cleared")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "message": "所有缓存已清除"}).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[Admin] clear-cache error: {exc}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
+
+    def _handle_admin_test_sources(self):
+        results = []
+        # --- Sina ---
+        try:
+            t0 = time.time()
+            from backend.sources import fetch_usdcny_sina
+            rate = fetch_usdcny_sina()
+            elapsed = round((time.time() - t0) * 1000)
+            if rate and rate > 0:
+                results.append({"source": "Sina", "ok": True, "latency_ms": elapsed,
+                                "detail": f"USD/CNY = {rate:.4f}"})
+            else:
+                results.append({"source": "Sina", "ok": False, "latency_ms": elapsed,
+                                "detail": "返回数据为空"})
+        except Exception as exc:
+            results.append({"source": "Sina", "ok": False, "latency_ms": 0,
+                            "detail": str(exc)})
+
+        # --- iFinD ---
+        try:
+            from backend.ifind import client as ifind_client
+            t0 = time.time()
+            logged_in = ifind_client.ensure_login()
+            if not logged_in:
+                results.append({"source": "iFinD", "ok": False, "latency_ms": 0,
+                                "detail": "登录失败"})
+            else:
+                row = ifind_client.realtime_quote("XAUUSD.FX", "latest;change;changeRatio")
+                elapsed = round((time.time() - t0) * 1000)
+                if row and row.get("latest"):
+                    price = row["latest"]
+                    results.append({"source": "iFinD", "ok": True, "latency_ms": elapsed,
+                                    "detail": f"mode={ifind_client._mode}, XAU={price}"})
+                else:
+                    results.append({"source": "iFinD", "ok": True, "latency_ms": elapsed,
+                                    "detail": f"mode={ifind_client._mode}, 已登录但XAU暂无数据(可能休市)"})
+        except Exception as exc:
+            results.append({"source": "iFinD", "ok": False, "latency_ms": 0,
+                            "detail": str(exc)})
+
+        # --- Infoway (common) ---
+        try:
+            is_connected = infoway_available()
+            results.append({"source": "Infoway-贵金属", "ok": is_connected,
+                            "latency_ms": 0,
+                            "detail": "WebSocket 已连接" if is_connected else "WebSocket 未连接"})
+        except Exception as exc:
+            results.append({"source": "Infoway-贵金属", "ok": False,
+                            "latency_ms": 0, "detail": str(exc)})
+
+        # --- Infoway (crypto) ---
+        try:
+            is_connected = infoway_crypto_available()
+            results.append({"source": "Infoway-加密货币", "ok": is_connected,
+                            "latency_ms": 0,
+                            "detail": "WebSocket 已连接" if is_connected else "WebSocket 未连接"})
+        except Exception as exc:
+            results.append({"source": "Infoway-加密货币", "ok": False,
+                            "latency_ms": 0, "detail": str(exc)})
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True, "results": results}, ensure_ascii=False).encode("utf-8"))
+
+    def _api_source_config(self):
+        """GET /api/admin/source-config — 返回数据源矩阵配置。"""
+        return {
+            "registry": SOURCE_REGISTRY,
+            "labels": SOURCE_LABELS,
+            "priority": state.source_priority,
+        }
+
+    def _handle_admin_source_config_post(self):
+        """POST /api/admin/source-config — 更新数据源优先级。"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            new_priority = body.get("priority")
+            if not isinstance(new_priority, dict):
+                raise ValueError("priority must be a dict")
+
+            # 校验每个品种的数据源列表
+            for inst_id, sources in new_priority.items():
+                if inst_id not in SOURCE_REGISTRY:
+                    raise ValueError(f"未知品种: {inst_id}")
+                if not isinstance(sources, list) or len(sources) == 0:
+                    raise ValueError(f"{inst_id}: 至少需要一个数据源")
+                valid = SOURCE_REGISTRY[inst_id]["sources"]
+                for s in sources:
+                    if s not in valid:
+                        raise ValueError(f"{inst_id}: 无效数据源 '{s}', 可选: {valid}")
+
+            with state.cache_lock:
+                state.source_priority.update(new_priority)
+
+            log.info(f"[Admin] Source priority updated: {new_priority}")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "priority": state.source_priority,
+            }, ensure_ascii=False).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[Admin] source-config error: {exc}")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False).encode("utf-8"))
+
     # ── GET API route handlers ──────────────────────────────────────────
 
     def _api_status(self):
@@ -485,6 +642,7 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         "/api/instruments": _api_instruments,
         "/api/instruments/registry": _api_instruments_registry,
         "/api/sources": _api_sources,
+        "/api/admin/source-config": _api_source_config,
     }
 
     # ── GET API dispatch ─────────────────────────────────────────────

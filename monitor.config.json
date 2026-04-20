@@ -115,7 +115,8 @@
     "password": "6PEk7e83",
     "refresh_token": "",
     "comex_silver_code": "XAGUSD.FX",
-    "comex_gold_code": "XAUUSD.FX"
+    "comex_gold_code": "XAUUSD.FX",
+    "huyin_code": "AG00.SHF"
   },
   "infoway_ws": {
     "enabled": true,

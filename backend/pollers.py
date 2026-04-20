@@ -21,11 +21,56 @@ from backend.sources import (
     fetch_huyin_sina,
     fetch_usdcny_sina,
 )
-from backend.ifind import fetch_comex_silver_ifind, fetch_comex_gold_ifind
+from backend.ifind import fetch_huyin_ifind, fetch_comex_silver_ifind, fetch_comex_gold_ifind
 from backend.infoway import fetch_comex_silver_infoway, fetch_comex_gold_infoway, fetch_btc_infoway
 from backend.state import state
 from backend.strategies.momentum import calc_momentum
 from backend.utils import get_conv, get_conv_gold
+
+
+# ── 数据源动态分发 ──────────────────────────────────────────────
+# (instrument_id, source_key) → fetch function
+_SOURCE_DISPATCH = {
+    ("ag0", "ifind"): fetch_huyin_ifind,
+    ("ag0", "sina"): fetch_huyin_sina,
+    ("xag", "ifind"): fetch_comex_silver_ifind,
+    ("xag", "infoway"): fetch_comex_silver_infoway,
+    ("xag", "sina"): fetch_comex_sina,
+    ("au0", "sina"): fetch_hujin_sina,
+    ("xau", "ifind"): fetch_comex_gold_ifind,
+    ("xau", "infoway"): fetch_comex_gold_infoway,
+    ("xau", "sina"): fetch_comex_gold_sina,
+    ("btc", "infoway_crypto"): fetch_btc_infoway,
+}
+
+# 可用数据源注册表（Admin UI 展示）
+SOURCE_REGISTRY = {
+    "ag0": {"name": "沪银 AG0", "sources": ["ifind", "sina"]},
+    "xag": {"name": "COMEX 银 XAG", "sources": ["ifind", "infoway", "sina"]},
+    "au0": {"name": "沪金 AU0", "sources": ["sina"]},
+    "xau": {"name": "COMEX 金 XAU", "sources": ["ifind", "infoway", "sina"]},
+    "btc": {"name": "BTC", "sources": ["infoway_crypto"]},
+}
+
+SOURCE_LABELS = {
+    "sina": "Sina 财经",
+    "ifind": "iFinD (同花顺)",
+    "infoway": "Infoway WS",
+    "infoway_crypto": "Infoway WS (加密)",
+}
+
+
+def _fetch_by_priority(inst_id: str):
+    """按 state.source_priority 优先级顺序尝试获取数据，返回第一个成功的结果。"""
+    priority = state.source_priority.get(inst_id, [])
+    for src in priority:
+        fn = _SOURCE_DISPATCH.get((inst_id, src))
+        if fn:
+            result = fn()
+            if result:
+                log.debug(f"[{inst_id.upper()}] Using source: {src}")
+                return result
+    return None
 
 
 # 品种 ID → config key 别名（与 backtest.py / core.js 保持一致）
@@ -96,7 +141,7 @@ class FastDataPoller(threading.Thread):
                 co_status, co_desc = get_trading_status("comex")
 
                 if hu_status == "open":
-                    em = fetch_huyin_sina()
+                    em = _fetch_by_priority("ag0")
                 else:
                     em = {
                         "symbol": "AG0",
@@ -169,15 +214,7 @@ class FastDataPoller(threading.Thread):
                         check_tick_jump("hu", em["price"], em.get("source", "Sina-AG0"))
 
                 if co_status == "open":
-                    co_fast = fetch_comex_silver_ifind()
-                    if co_fast:
-                        log.debug("[COMEX] Using iFinD as primary source")
-                    else:
-                        co_fast = fetch_comex_silver_infoway()
-                        if co_fast:
-                            log.debug("[COMEX] Using Infoway as secondary source")
-                    if not co_fast:
-                        co_fast = fetch_comex_sina()
+                    co_fast = _fetch_by_priority("xag")
                 else:
                     co_fast = {
                         "symbol": "SI=F",
@@ -249,7 +286,7 @@ class FastDataPoller(threading.Thread):
                             log.info(f"[COMEX/fallback] price={co['price']} from history")
 
                 if hu_status == "open":
-                    au = fetch_hujin_sina()
+                    au = _fetch_by_priority("au0")
                 else:
                     au = {
                         "symbol": "AU0",
@@ -312,15 +349,7 @@ class FastDataPoller(threading.Thread):
                         check_tick_jump("hujin", au["price"], au.get("source", "Sina-AU0"))
 
                 if co_status == "open":
-                    co_gold = fetch_comex_gold_ifind()
-                    if co_gold:
-                        log.debug("[COMEX-Gold] Using iFinD as primary source")
-                    else:
-                        co_gold = fetch_comex_gold_infoway()
-                        if co_gold:
-                            log.debug("[COMEX-Gold] Using Infoway as secondary source")
-                    if not co_gold:
-                        co_gold = fetch_comex_gold_sina()
+                    co_gold = _fetch_by_priority("xau")
                 else:
                     co_gold = {
                         "symbol": "GC=F",
@@ -377,8 +406,8 @@ class FastDataPoller(threading.Thread):
                             state.comex_gold_cache["ts"] = time.time()
                         check_tick_jump("comex_gold", co_gold["price"], co_gold.get("source", "unknown"))
 
-                # ── BTC (24/7, Infoway crypto only) ──
-                btc_data = fetch_btc_infoway()
+                # ── BTC (24/7, priority-based) ──
+                btc_data = _fetch_by_priority("btc")
                 if btc_data and btc_data.get("price", 0) > 0:
                     with state.cache_lock:
                         bt = state.btc_cache.get("data") or {}

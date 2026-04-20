@@ -65,5 +65,14 @@ class AppState:
     # 单调递增版本号，每次数据更新 +1，SSE 用于变更检测
     data_version: int = 0
 
+    # 数据源优先级配置（可通过 Admin API 动态切换）
+    source_priority: dict = field(default_factory=lambda: {
+        "ag0": ["ifind", "sina"],
+        "xag": ["ifind", "infoway", "sina"],
+        "au0": ["sina"],
+        "xau": ["ifind", "infoway", "sina"],
+        "btc": ["infoway_crypto"],
+    })
+
 
 state = AppState()

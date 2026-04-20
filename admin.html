@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>后台管理 | Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/css/monitor.css">
+<style>
+  .admin-wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px; }
+  .admin-section { background: var(--bg1); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 24px; }
+  .admin-section h2 { margin: 0 0 6px; font-size: 16px; color: var(--text); }
+  .admin-section p.desc { margin: 0 0 18px; font-size: 12px; color: var(--text2); }
+  .btn-admin { display: inline-flex; align-items: center; gap: 6px; padding: 10px 22px; border: none; border-radius: 6px; font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
+  .btn-admin:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-danger { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+  .btn-danger:hover:not(:disabled) { background: rgba(248,81,73,.25); }
+  .btn-primary { background: rgba(88,166,255,.15); color: var(--blue); border: 1px solid rgba(88,166,255,.3); }
+  .btn-primary:hover:not(:disabled) { background: rgba(88,166,255,.25); }
+  .result-box { margin-top: 16px; padding: 14px; background: var(--bg0); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; color: var(--text2); min-height: 20px; display: none; }
+  .result-box.visible { display: block; }
+  .source-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .source-row:last-child { border-bottom: none; }
+  .source-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .source-badge.ok { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,.4); }
+  .source-badge.fail { background: var(--red); box-shadow: 0 0 6px rgba(248,81,73,.4); }
+  .source-badge.testing { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .source-name { font-weight: 600; color: var(--text); min-width: 130px; }
+  .source-detail { color: var(--text2); flex: 1; }
+  .source-latency { color: var(--text3); font-size: 11px; min-width: 70px; text-align: right; }
+  /* ── Source Matrix ── */
+  .matrix-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .matrix-table th, .matrix-table td { padding: 10px 12px; text-align: center; border-bottom: 1px solid var(--border); }
+  .matrix-table th { color: var(--text2); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .matrix-table td:first-child { text-align: left; font-weight: 600; color: var(--text); min-width: 120px; }
+  .matrix-table tbody tr:hover { background: rgba(88,166,255,.05); }
+  .src-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all .15s; border: 1px solid var(--border); color: var(--text2); background: transparent; user-select: none; }
+  .src-chip.active { border-color: var(--blue); color: var(--blue); background: rgba(88,166,255,.12); }
+  .src-chip.disabled { opacity: .3; cursor: not-allowed; }
+  .src-chip .chip-order { display: inline-block; width: 16px; height: 16px; line-height: 16px; border-radius: 50%; font-size: 10px; font-weight: 700; text-align: center; background: var(--border); color: var(--text3); }
+  .src-chip.active .chip-order { background: var(--blue); color: #fff; }
+  .matrix-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  .matrix-status { font-size: 12px; color: var(--text3); }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--text3); border-top-color: var(--blue); border-radius: 50%; animation: spin .6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; font-family: var(--mono); font-size: 13px; z-index: 9999; opacity: 0; transform: translateY(-10px); transition: all .3s; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+  .toast.success { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.3); }
+  .toast.error { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.3); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <div class="header-left">
+      <h1>⚙ 后台管理</h1>
+    </div>
+    <div class="header-right">
+      <a class="header-nav" href="index.html">行情监控</a>
+      <a class="header-nav" href="strategy.html">策略管理</a>
+    </div>
+  </div>
+
+  <div class="admin-wrap">
+
+    <!-- Section 0: Source Priority Matrix -->
+    <div class="admin-section">
+      <h2>🔀 数据源优先级配置</h2>
+      <p class="desc">点击切换各品种的数据源启用状态和优先级顺序（数字越小优先级越高），保存后即时生效，无需重启。</p>
+      <div id="matrixWrap"><div style="color:var(--text3)">加载中…</div></div>
+      <div class="matrix-actions">
+        <button class="btn-admin btn-primary" id="btnSaveMatrix" onclick="saveMatrix()">💾 保存配置</button>
+        <button class="btn-admin" style="background:transparent;color:var(--text2);border:1px solid var(--border);" onclick="loadMatrix()">↻ 重置</button>
+        <span class="matrix-status" id="matrixStatus"></span>
+      </div>
+    </div>
+
+    <!-- Section 1: Test Sources -->
+    <div class="admin-section">
+      <h2>🔌 数据源连通性测试</h2>
+      <p class="desc">实时测试 Sina、iFinD、Infoway 贵金属和加密货币四个数据源的连接状态</p>
+      <button class="btn-admin btn-primary" id="btnTest" onclick="testSources()">
+        <span id="testIcon">⚡</span> 开始测试
+      </button>
+      <div class="result-box" id="testResult">
+        <div id="sourceRows"></div>
+      </div>
+    </div>
+
+    <!-- Section 2: Clear Cache -->
+    <div class="admin-section">
+      <h2>🗑 清除数据缓存</h2>
+      <p class="desc">一键清除所有价格缓存、Tick 环形缓冲、告警历史、动量信号和研究样本。清除后数据将在下一个轮询周期自动恢复。</p>
+      <button class="btn-admin btn-danger" id="btnClear" onclick="clearCache()">
+        🗑 清除所有缓存
+      </button>
+      <div class="result-box" id="clearResult"></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = `${location.protocol}//${location.hostname}:${location.port || 8765}`;
+
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + type;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+/* ── Source Priority Matrix ───────────────────────────── */
+let matrixData = {}; // { inst_id: [src1, src2, ...] }
+let matrixRegistry = {};
+let matrixLabels = {};
+
+async function loadMatrix() {
+  try {
+    const resp = await fetch(`${API}/api/admin/source-config`);
+    const data = await resp.json();
+    matrixRegistry = data.registry;
+    matrixLabels = data.labels;
+    matrixData = JSON.parse(JSON.stringify(data.priority));
+    renderMatrix();
+    setMatrixStatus('');
+  } catch (e) {
+    document.getElementById('matrixWrap').innerHTML = `<span style="color:var(--red)">加载失败: ${e.message}</span>`;
+  }
+}
+
+function renderMatrix() {
+  const wrap = document.getElementById('matrixWrap');
+  // collect all unique source keys
+  const allSources = [];
+  const seen = new Set();
+  for (const info of Object.values(matrixRegistry)) {
+    for (const s of info.sources) {
+      if (!seen.has(s)) { seen.add(s); allSources.push(s); }
+    }
+  }
+
+  let html = `<table class="matrix-table"><thead><tr><th>品种</th>`;
+  for (const s of allSources) {
+    html += `<th>${matrixLabels[s] || s}</th>`;
+  }
+  html += `</tr></thead><tbody>`;
+
+  for (const [instId, info] of Object.entries(matrixRegistry)) {
+    const active = matrixData[instId] || [];
+    html += `<tr><td>${info.name}</td>`;
+    for (const s of allSources) {
+      const available = info.sources.includes(s);
+      const idx = active.indexOf(s);
+      const isActive = idx >= 0;
+      if (!available) {
+        html += `<td><span class="src-chip disabled">—</span></td>`;
+      } else {
+        const order = isActive ? idx + 1 : '';
+        html += `<td><span class="src-chip ${isActive ? 'active' : ''}" data-inst="${instId}" data-src="${s}" onclick="toggleSource(this)">`;
+        html += `<span class="chip-order">${order}</span> ${isActive ? '启用' : '关闭'}`;
+        html += `</span></td>`;
+      }
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table>`;
+  wrap.innerHTML = html;
+}
+
+function toggleSource(el) {
+  const inst = el.dataset.inst;
+  const src = el.dataset.src;
+  let active = matrixData[inst] || [];
+  const idx = active.indexOf(src);
+  if (idx >= 0) {
+    // Don't allow removing the last source
+    if (active.length <= 1) {
+      showToast('至少保留一个数据源', 'error');
+      return;
+    }
+    active.splice(idx, 1);
+  } else {
+    active.push(src);
+  }
+  matrixData[inst] = active;
+  renderMatrix();
+  setMatrixStatus('⚠ 未保存');
+}
+
+function setMatrixStatus(msg) {
+  document.getElementById('matrixStatus').textContent = msg;
+}
+
+async function saveMatrix() {
+  const btn = document.getElementById('btnSaveMatrix');
+  btn.disabled = true;
+  btn.textContent = '保存中…';
+  try {
+    const resp = await fetch(`${API}/api/admin/source-config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ priority: matrixData }),
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      matrixData = JSON.parse(JSON.stringify(data.priority));
+      renderMatrix();
+      setMatrixStatus('✓ 已保存');
+      showToast('数据源配置已保存并生效', 'success');
+    } else {
+      showToast('保存失败: ' + (data.error || '未知错误'), 'error');
+      setMatrixStatus('✗ 保存失败');
+    }
+  } catch (e) {
+    showToast('请求失败: ' + e.message, 'error');
+    setMatrixStatus('✗ 请求失败');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 保存配置';
+  }
+}
+
+// Load matrix on page load
+loadMatrix();
+
+/* ── Test Sources ────────────────────────────────────── */
+async function testSources() {
+  const btn = document.getElementById('btnTest');
+  const box = document.getElementById('testResult');
+  const rows = document.getElementById('sourceRows');
+  btn.disabled = true;
+  document.getElementById('testIcon').innerHTML = '<span class="spinner"></span>';
+
+  // Show placeholder rows
+  const placeholders = ['Sina', 'iFinD', 'Infoway-贵金属', 'Infoway-加密货币'];
+  rows.innerHTML = placeholders.map(name =>
+    `<div class="source-row">
+       <span class="source-badge testing"></span>
+       <span class="source-name">${name}</span>
+       <span class="source-detail">测试中…</span>
+       <span class="source-latency"></span>
+     </div>`
+  ).join('');
+  box.classList.add('visible');
+
+  try {
+    const resp = await fetch(`${API}/api/admin/test-sources`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      rows.innerHTML = data.results.map(r => {
+        const cls = r.ok ? 'ok' : 'fail';
+        const latency = r.latency_ms > 0 ? `${r.latency_ms}ms` : '';
+        return `<div class="source-row">
+                  <span class="source-badge ${cls}"></span>
+                  <span class="source-name">${r.source}</span>
+                  <span class="source-detail">${r.detail}</span>
+                  <span class="source-latency">${latency}</span>
+                </div>`;
+      }).join('');
+      const allOk = data.results.every(r => r.ok);
+      showToast(allOk ? '所有数据源连通正常' : '部分数据源异常', allOk ? 'success' : 'error');
+    } else {
+      rows.innerHTML = `<div style="color:var(--red)">测试失败: ${data.error || '未知错误'}</div>`;
+    }
+  } catch (e) {
+    rows.innerHTML = `<div style="color:var(--red)">请求失败: ${e.message}</div>`;
+    showToast('请求失败', 'error');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('testIcon').textContent = '⚡';
+  }
+}
+
+/* ── Clear Cache ─────────────────────────────────────── */
+async function clearCache() {
+  if (!confirm('确定要清除所有数据缓存吗？\n\n清除后行情数据将暂时为空，下一个轮询周期会自动恢复。')) return;
+  const btn = document.getElementById('btnClear');
+  const box = document.getElementById('clearResult');
+  btn.disabled = true;
+  btn.textContent = '清除中…';
+
+  try {
+    const resp = await fetch(`${API}/api/admin/clear-cache`, { method: 'POST' });
+    const data = await resp.json();
+    box.classList.add('visible');
+    if (data.ok) {
+      box.innerHTML = `<span style="color:var(--green)">✓ ${data.message}</span> <span style="color:var(--text3)">(${new Date().toLocaleTimeString()})</span>`;
+      showToast('缓存已清除', 'success');
+    } else {
+      box.innerHTML = `<span style="color:var(--red)">✗ ${data.error}</span>`;
+      showToast('清除失败', 'error');
+    }
+  } catch (e) {
+    box.classList.add('visible');
+    box.innerHTML = `<span style="color:var(--red)">请求失败: ${e.message}</span>`;
+    showToast('请求失败', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🗑 清除所有缓存';
+  }
+}
+</script>
+</body>
+</html>

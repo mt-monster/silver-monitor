@@ -7,7 +7,7 @@
 | 数据源 | 类型 | 认证方式 | 覆盖品种 | 状态 |
 |--------|------|----------|----------|------|
 | **Sina 财经** | HTTP 轮询 | 无需认证 | 沪银、沪金、COMEX 银/金、USD/CNY、62 种期货 | ✅ 正常 |
-| **iFinD (同花顺)** | SDK / HTTP REST | 账号密码 / refresh_token | COMEX 银 (XAGUSD.FX)、COMEX 金 (XAUUSD.FX) | ✅ 正常 |
+| **iFinD (同花顺)** | SDK / HTTP REST | 账号密码 / refresh_token | COMEX 银 (XAGUSD.FX)、COMEX 金 (XAUUSD.FX)、沪银主力 (AG00.SHF) | ✅ 正常 |
 | **Infoway WS (贵金属)** | WebSocket 推送 | API Key | COMEX 银 (XAGUSD)、COMEX 金 (XAUUSD) | ✅ 正常 |
 | **Infoway WS (加密货币)** | WebSocket 推送 | API Key | BTC (BTCUSDT) | ✅ 正常 |
 
@@ -19,7 +19,7 @@
 
 | 品种 | 代码 | 优先级 1 | 优先级 2 | 优先级 3 | 交易时段 |
 |------|------|----------|----------|----------|----------|
-| 沪银 | AG0 | Sina `nf_AG0` | — | — | 国内期货时段 |
+| 沪银 | AG0 | iFinD `AG00.SHF` | Sina `nf_AG0` | — | 国内期货时段 |
 | COMEX 银 | XAG | iFinD `XAGUSD.FX` | Infoway WS `XAGUSD` | Sina `hf_XAG` | COMEX 时段 |
 | 沪金 | AU0 | Sina `nf_AU0` | — | — | 国内期货时段 |
 | COMEX 金 | XAU | iFinD `XAUUSD.FX` | Infoway WS `XAUUSD` | Sina `hf_XAU` | COMEX 时段 |
@@ -73,7 +73,7 @@
 - **当前配置**：
   - 账号：`zhzqsf001`（SDK 模式）
   - `refresh_token`：未配置（仅用 SDK 模式）
-- **合约代码**：`XAGUSD.FX`（白银）、`XAUUSD.FX`（黄金）
+- **合约代码**：`XAGUSD.FX`（白银）、`XAUUSD.FX`（黄金）、`AG00.SHF`（沪银主力）
 - **查询指标**：`latest;open;high;low;preClose;vol;amount;changeRatio;change;datetime`
 - **特点**：数据质量高、延迟低；需要付费账号；不支持加密货币
 
