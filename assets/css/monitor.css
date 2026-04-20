@@ -124,6 +124,7 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 /* Real-time chart badges */
 .rt-badge{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(63,185,80,.15);color:var(--green);margin-left:6px;animation:pulse 1.5s infinite}
 .rt-count{font-size:9px;color:var(--text3);margin-left:4px}
+.sr-label{font-size:9px;margin-left:6px;font-family:var(--mono);letter-spacing:0.3px}
 .hist-badge{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(88,166,255,.1);color:var(--blue);margin-left:6px}
 
 /* Momentum Signal */

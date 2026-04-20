@@ -59,9 +59,40 @@
     renderers.renderAtrMetric({ valueId: "coATR", barId: "coATRBar", atrValue: coAtr, decimals: 3, unit: "$/oz", maxScale: 1.5 });
   };
 
+  // 共享工具：计算最近 windowMs 内的压力/支撑并更新 chart datasets[1/2] 和标签
+  Monitor._applyChartSR = function (datasets, points, labelElId, decimals, windowMs) {
+    const SR_MS = windowMs || 20000;
+    if (points.length >= 2) {
+      const cutoff = points[points.length - 1].x - SR_MS;
+      let hi = -Infinity, lo = Infinity;
+      for (let i = points.length - 1; i >= 0 && points[i].x >= cutoff; i--) {
+        if (points[i].y > hi) hi = points[i].y;
+        if (points[i].y < lo) lo = points[i].y;
+      }
+      if (isFinite(hi) && hi !== lo) {
+        const xMin = points[0].x, xMax = points[points.length - 1].x;
+        datasets[1].data = [{ x: xMin, y: hi }, { x: xMax, y: hi }];
+        datasets[2].data = [{ x: xMin, y: lo }, { x: xMax, y: lo }];
+        const srEl = el(labelElId);
+        if (srEl) srEl.innerHTML = '<span style="color:#f85149">R\u00a0' + hi.toFixed(decimals) + '</span> / <span style="color:#3fb950">S\u00a0' + lo.toFixed(decimals) + '</span>';
+        return;
+      }
+    }
+    datasets[1].data = [];
+    datasets[2].data = [];
+    const srEl = el(labelElId);
+    if (srEl) srEl.textContent = "";
+  };
+
   Monitor.updateRtCharts = function () {
-    charts.silverRealtimeChart.data.datasets[0].data = app.silverRealtimePoints.map(p => ({ x: p.x, y: p.y }));
-    charts.comexSilverRealtimeChart.data.datasets[0].data = app.comexSilverRealtimePoints.map(p => ({ x: p.x, y: p.y }));
+    const huData = app.silverRealtimePoints;
+    const coData = app.comexSilverRealtimePoints;
+    charts.silverRealtimeChart.data.datasets[0].data = huData.map(p => ({ x: p.x, y: p.y }));
+    charts.comexSilverRealtimeChart.data.datasets[0].data = coData.map(p => ({ x: p.x, y: p.y }));
+
+    Monitor._applyChartSR(charts.silverRealtimeChart.data.datasets, huData, "huSrLabel", 1);
+    Monitor._applyChartSR(charts.comexSilverRealtimeChart.data.datasets, coData, "coSrLabel", 3);
+
     charts.silverRealtimeChart.update("none");
     charts.comexSilverRealtimeChart.update("none");
     el("huRtCount").textContent = app.silverRealtimePoints.length + " pts";

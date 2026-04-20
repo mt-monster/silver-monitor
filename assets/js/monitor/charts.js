@@ -70,7 +70,11 @@
     }),
     silverRealtimeChart: new Chart(el("huRtChart").getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "沪银实时", data: [], borderColor: "#f85149", backgroundColor: "rgba(248,81,73,0.08)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      data: { datasets: [
+        { label: "沪银实时", data: [], borderColor: "#f85149", backgroundColor: "rgba(248,81,73,0.08)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true },
+        { label: "压力", data: [], borderColor: "rgba(248,81,73,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+        { label: "支撑", data: [], borderColor: "rgba(63,185,80,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+      ] },
       options: {
         ...Monitor.realtimeChartOptions,
         plugins: {
@@ -81,6 +85,7 @@
             borderWidth: 1,
             titleFont: { size: 10 },
             bodyFont: { size: 11 },
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: ctx => "沪银: " + ctx.parsed.y.toFixed(1) + " 元/kg",
               title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -91,7 +96,11 @@
     }),
     comexSilverRealtimeChart: new Chart(el("coRtChart").getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "COMEX实时", data: [], borderColor: "#39d2c0", backgroundColor: "rgba(57,210,192,0.08)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      data: { datasets: [
+        { label: "COMEX实时", data: [], borderColor: "#39d2c0", backgroundColor: "rgba(57,210,192,0.08)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true },
+        { label: "压力", data: [], borderColor: "rgba(248,81,73,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+        { label: "支撑", data: [], borderColor: "rgba(63,185,80,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+      ] },
       options: {
         ...Monitor.realtimeChartOptions,
         plugins: {
@@ -102,6 +111,7 @@
             borderWidth: 1,
             titleFont: { size: 10 },
             bodyFont: { size: 11 },
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: ctx => "COMEX: $" + ctx.parsed.y.toFixed(3) + "/oz",
               title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -182,7 +192,11 @@
 
     Monitor.charts.goldRealtimeChart = new Chart(el("auRtChart").getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "沪金实时", data: [], borderColor: "#d29922", backgroundColor: "rgba(210,153,34,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      data: { datasets: [
+        { label: "沪金实时", data: [], borderColor: "#d29922", backgroundColor: "rgba(210,153,34,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true },
+        { label: "压力", data: [], borderColor: "rgba(248,81,73,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+        { label: "支撑", data: [], borderColor: "rgba(63,185,80,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+      ] },
       options: {
         ...Monitor.realtimeChartOptions,
         plugins: {
@@ -193,6 +207,7 @@
             borderWidth: 1,
             titleFont: { size: 10 },
             bodyFont: { size: 11 },
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: ctx => "沪金: " + ctx.parsed.y.toFixed(2) + " 元/克",
               title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -204,7 +219,11 @@
 
     Monitor.charts.comexGoldRealtimeChart = new Chart(el("cgRtChart").getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "COMEX Gold 实时", data: [], borderColor: "#f0883e", backgroundColor: "rgba(240,136,62,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      data: { datasets: [
+        { label: "COMEX Gold 实时", data: [], borderColor: "#f0883e", backgroundColor: "rgba(240,136,62,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true },
+        { label: "压力", data: [], borderColor: "rgba(248,81,73,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+        { label: "支撑", data: [], borderColor: "rgba(63,185,80,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+      ] },
       options: {
         ...Monitor.realtimeChartOptions,
         plugins: {
@@ -215,6 +234,7 @@
             borderWidth: 1,
             titleFont: { size: 10 },
             bodyFont: { size: 11 },
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: ctx => "COMEX Gold: $" + ctx.parsed.y.toFixed(2) + "/oz",
               title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),
@@ -250,7 +270,11 @@
 
     Monitor.charts.btcRealtimeChart = new Chart(el("btcRtChart").getContext("2d"), {
       type: "line",
-      data: { datasets: [{ label: "BTC 实时", data: [], borderColor: "#f7931a", backgroundColor: "rgba(247,147,26,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true }] },
+      data: { datasets: [
+        { label: "BTC 实时", data: [], borderColor: "#f7931a", backgroundColor: "rgba(247,147,26,0.10)", borderWidth: 2, pointRadius: 0, tension: 0.2, fill: true },
+        { label: "压力", data: [], borderColor: "rgba(248,81,73,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+        { label: "支撑", data: [], borderColor: "rgba(63,185,80,0.7)", borderWidth: 1.5, pointRadius: 0, borderDash: [6, 3], fill: false, order: 1 },
+      ] },
       options: {
         ...Monitor.realtimeChartOptions,
         plugins: {
@@ -261,6 +285,7 @@
             borderWidth: 1,
             titleFont: { size: 10 },
             bodyFont: { size: 11 },
+            filter: item => item.datasetIndex === 0,
             callbacks: {
               label: ctx => "BTC: $" + ctx.parsed.y.toFixed(2),
               title: items => new Date(items[0].parsed.x).toLocaleTimeString("zh-CN", { hour12: false }),

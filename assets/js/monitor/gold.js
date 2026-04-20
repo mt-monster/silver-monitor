@@ -70,8 +70,14 @@
 
   Monitor.updateGoldRtCharts = function () {
     if (!app.isGoldChartsInitialized) return;
-    charts.goldRealtimeChart.data.datasets[0].data = app.goldRealtimePoints.map(p => ({ x: p.x, y: p.y }));
-    charts.comexGoldRealtimeChart.data.datasets[0].data = app.comexGoldRealtimePoints.map(p => ({ x: p.x, y: p.y }));
+    const auData = app.goldRealtimePoints;
+    const cgData = app.comexGoldRealtimePoints;
+    charts.goldRealtimeChart.data.datasets[0].data = auData.map(p => ({ x: p.x, y: p.y }));
+    charts.comexGoldRealtimeChart.data.datasets[0].data = cgData.map(p => ({ x: p.x, y: p.y }));
+
+    Monitor._applyChartSR(charts.goldRealtimeChart.data.datasets, auData, "auSrLabel", 2);
+    Monitor._applyChartSR(charts.comexGoldRealtimeChart.data.datasets, cgData, "cgSrLabel", 2);
+
     charts.goldRealtimeChart.update("none");
     charts.comexGoldRealtimeChart.update("none");
     el("auRtCount").textContent = app.goldRealtimePoints.length + " pts";

@@ -36,7 +36,11 @@
 
   Monitor.updateCryptoRtCharts = function () {
     if (!app.isCryptoChartsInitialized) return;
-    charts.btcRealtimeChart.data.datasets[0].data = app.btcRealtimePoints.map(p => ({ x: p.x, y: p.y }));
+    const btcData = app.btcRealtimePoints;
+    charts.btcRealtimeChart.data.datasets[0].data = btcData.map(p => ({ x: p.x, y: p.y }));
+
+    Monitor._applyChartSR(charts.btcRealtimeChart.data.datasets, btcData, "btcSrLabel", 2);
+
     charts.btcRealtimeChart.update("none");
     var countEl = el("btcRtCount");
     if (countEl) countEl.textContent = app.btcRealtimePoints.length + " pts";

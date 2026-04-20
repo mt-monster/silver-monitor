@@ -305,7 +305,7 @@ def fetch_huyin_ifind() -> dict | None:
     or None on failure.
     """
     cfg = _ifind_cfg()
-    code = cfg.get("huyin_code", "AG00.SHF")
+    code = cfg.get("huyin_code", "AGZL.SHF")
 
     row = client.realtime_quote(code)
     if not row:
