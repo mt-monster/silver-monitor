@@ -79,20 +79,48 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def _handle_threshold(self):
+        """POST /api/threshold — 支持全局阈值或分品种阈值。
+
+        请求体:
+          {"threshold": 0.15}                          — 设置全局默认阈值
+          {"thresholds": {"hu": 0.15, "comex": 0.10}}  — 设置分品种阈值
+          两者可同时传入。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length > 0 else {}
-            val = float(body.get("threshold", 0))
-            if val < 0.0 or val > 5.0:
-                raise ValueError("threshold must be between 0 and 5")
-            if abs(val * 2 - round(val * 2)) > 1e-9:
-                raise ValueError("threshold must be in 0.5 steps")
-            state.tick_jump_threshold = round(val, 1)
-            log.info(f"[Config] Alert threshold changed to {state.tick_jump_threshold}%")
+
+            valid_markets = {"hu", "comex", "hujin", "comex_gold", "btc"}
+
+            # 全局阈值
+            if "threshold" in body:
+                val = float(body["threshold"])
+                if val < 0.0 or val > 5.0:
+                    raise ValueError("threshold must be between 0 and 5")
+                state.tick_jump_threshold = round(val, 3)
+
+            # 分品种阈值
+            if "thresholds" in body:
+                per = body["thresholds"]
+                if not isinstance(per, dict):
+                    raise ValueError("thresholds must be a dict")
+                for market, v in per.items():
+                    if market not in valid_markets:
+                        raise ValueError(f"未知品种: {market}, 可选: {valid_markets}")
+                    fv = float(v)
+                    if fv < 0.0 or fv > 5.0:
+                        raise ValueError(f"{market}: threshold must be between 0 and 5")
+                    state.tick_jump_thresholds[market] = round(fv, 3)
+
+            log.info(f"[Config] Alert thresholds updated: global={state.tick_jump_threshold}%, per-market={state.tick_jump_thresholds}")
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps({"ok": True, "threshold": state.tick_jump_threshold}).encode())
+            self.wfile.write(json.dumps({
+                "ok": True,
+                "threshold": state.tick_jump_threshold,
+                "thresholds": state.tick_jump_thresholds,
+            }, ensure_ascii=False).encode("utf-8"))
         except Exception as exc:
             self.send_response(400)
             self.send_header("Content-Type", "application/json")
@@ -527,6 +555,7 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             "alerts": alerts,
             "count": len(alerts),
             "threshold": state.tick_jump_threshold,
+            "thresholds": dict(state.tick_jump_thresholds),
             "stats": stats,
             "huTickRing": hu_ring,
             "comexTickRing": co_ring,

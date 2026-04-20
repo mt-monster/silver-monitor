@@ -4,7 +4,7 @@
   const thresholdBadgeId = "alertThresholdBadge";
 
   function formatThresholdLabel(value) {
-    return `阈值: ≥${value.toFixed(1)}%`;
+    return `阈值: ≥${value.toFixed(2)}%`;
   }
 
   function setThresholdUi(value) {
@@ -13,7 +13,7 @@
       badge.childNodes[0].textContent = formatThresholdLabel(value);
     }
     if (el("thCurVal")) {
-      el("thCurVal").textContent = value.toFixed(1);
+      el("thCurVal").textContent = value.toFixed(2);
     }
     const menu = el("thresholdMenu");
     if (menu) {
@@ -93,6 +93,14 @@
   Monitor.updateAlerts = function (payload) {
     setThresholdUi(Number(payload.threshold || 0));
 
+    // 展示分品种阈值
+    const thresholds = payload.thresholds || {};
+    const thMap = { hu: "huTh", comex: "coTh", hujin: "hujinTh", comex_gold: "comexGoldTh", btc: "btcTh" };
+    for (const [market, elId] of Object.entries(thMap)) {
+      const node = el(elId);
+      if (node) node.textContent = (thresholds[market] != null ? thresholds[market].toFixed(2) : "--") + "%";
+    }
+
     const huStats = payload.stats.hu || { surge: 0, drop: 0, maxJump: 0 };
     const coStats = payload.stats.comex || { surge: 0, drop: 0, maxJump: 0 };
     el("huSurge").textContent = huStats.surge;
@@ -145,8 +153,9 @@
   };
 
   Monitor.buildThresholdMenu = function () {
-    const vals = Array.from({ length: 11 }, (_, index) => index * 0.5);
-    el("thresholdMenu").innerHTML = vals.map(v => `<div class="th-item ${v === 1.0 ? "active" : ""}" data-th="${v}">阈值 ${v.toFixed(1)}%</div>`).join("");
+    const vals = [0];
+    for (let v = 0.05; v <= 1.005; v += 0.05) vals.push(Math.round(v * 100) / 100);
+    el("thresholdMenu").innerHTML = vals.map(v => `<div class="th-item ${Math.abs(v - 0.15) < 0.001 ? "active" : ""}" data-th="${v}">${v === 0 ? "OFF" : v.toFixed(2) + "%"}</div>`).join("");
     el("thresholdMenu").addEventListener("click", async event => {
       const item = event.target.closest(".th-item");
       if (!item) return;

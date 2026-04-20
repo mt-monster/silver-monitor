@@ -16,6 +16,9 @@ def check_tick_jump(market, price, source="unknown"):
     ring_attr, market_name, unit = ring_map.get(market, ("silver_tick_ring", market, ""))
     tick_ring = list(getattr(state, ring_attr))
 
+    # 获取该品种的独立阈值，优先 per-market，回退全局
+    threshold = state.tick_jump_thresholds.get(market, state.tick_jump_threshold)
+
     now_ms = int(time.time() * 1000)
     now_str = datetime.now(CST).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -40,18 +43,19 @@ def check_tick_jump(market, price, source="unknown"):
         if prev > 0:
             one_tick_pct = (last["price"] - prev) / prev * 100
 
-    if abs(change_pct) < state.tick_jump_threshold:
+    if abs(change_pct) < threshold:
         return None
 
     direction = "急涨" if change_pct > 0 else "急跌"
-    severity = "HIGH" if abs(change_pct) >= 3.0 else "MEDIUM" if abs(change_pct) >= 2.0 else "LOW"
+    ratio = abs(change_pct) / threshold if threshold > 0 else 1
+    severity = "HIGH" if ratio >= 3.0 else "MEDIUM" if ratio >= 2.0 else "LOW"
     alert = {
         "id": f"alert_{market}_{now_ms}",
         "market": market,
         "marketName": market_name,
         "type": f"{market_name}_3TICK_JUMP",
         "direction": direction,
-        "threshold": state.tick_jump_threshold,
+        "threshold": threshold,
         "changePercent": round(change_pct, 3),
         "changeAbs": round(last["price"] - first["price"], 3),
         "fromPrice": first["price"],

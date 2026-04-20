@@ -2,7 +2,7 @@ import queue
 import threading
 from dataclasses import dataclass, field
 
-from backend.config import DEFAULT_ALERT_MAX_HISTORY, DEFAULT_TICK_JUMP_THRESHOLD
+from backend.config import DEFAULT_ALERT_MAX_HISTORY, DEFAULT_TICK_JUMP_THRESHOLD, DEFAULT_TICK_JUMP_THRESHOLDS
 
 
 def _cache():
@@ -37,6 +37,7 @@ class AppState:
     usd_cny_cache: dict = field(default_factory=_rate_cache)
 
     tick_jump_threshold: float = DEFAULT_TICK_JUMP_THRESHOLD
+    tick_jump_thresholds: dict = field(default_factory=lambda: dict(DEFAULT_TICK_JUMP_THRESHOLDS))
     alert_max_history: int = DEFAULT_ALERT_MAX_HISTORY
 
     huyin_research_samples: list = field(default_factory=list)

@@ -9,16 +9,19 @@ from backend.state import state
 class TickJumpAlertTestCase(unittest.TestCase):
     def setUp(self):
         self._saved_threshold = state.tick_jump_threshold
+        self._saved_thresholds = dict(state.tick_jump_thresholds)
         self._saved_ring = list(state.silver_tick_ring)
         self._saved_history = list(state.alert_history)
         self._saved_hu_stats = dict(state.alert_stats["hu"])
         state.tick_jump_threshold = 0.5
+        state.tick_jump_thresholds["hu"] = 0.5
         state.silver_tick_ring = []
         state.alert_history = []
         state.alert_stats["hu"] = {"surge": 0, "drop": 0, "maxJump": 0}
 
     def tearDown(self):
         state.tick_jump_threshold = self._saved_threshold
+        state.tick_jump_thresholds.update(self._saved_thresholds)
         state.silver_tick_ring = self._saved_ring
         state.alert_history = self._saved_history
         state.alert_stats["hu"] = self._saved_hu_stats

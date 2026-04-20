@@ -8,7 +8,14 @@
     "slow_seconds": 60
   },
   "alerts": {
-    "tick_jump_threshold": 1.0,
+    "tick_jump_threshold": 0.15,
+    "tick_jump_thresholds": {
+      "hu": 0.15,
+      "comex": 0.10,
+      "hujin": 0.12,
+      "comex_gold": 0.10,
+      "btc": 0.30
+    },
     "max_history": 200
   },
   "frontend": {

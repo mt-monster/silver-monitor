@@ -8,7 +8,14 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "monitor.config.json"
 DEFAULT_CONFIG = {
     "server": {"host": "0.0.0.0", "port": 8765},
     "polling": {"fast_seconds": 3, "slow_seconds": 60},
-    "alerts": {"tick_jump_threshold": 1.0, "max_history": 200},
+    "alerts": {
+        "tick_jump_threshold": 0.15,
+        "tick_jump_thresholds": {
+            "hu": 0.15, "comex": 0.10, "hujin": 0.12,
+            "comex_gold": 0.10, "btc": 0.30,
+        },
+        "max_history": 200,
+    },
     "frontend": {"default_api_host": "127.0.0.1", "fallback_port": 8765, "poll_ms": 1000, "alert_poll_ms": 2000},
     "momentum": {
         "short_p": 5,
@@ -65,6 +72,7 @@ PORT = int(RUNTIME_CONFIG["server"]["port"])
 FAST_POLL = int(RUNTIME_CONFIG["polling"]["fast_seconds"])
 SLOW_POLL = int(RUNTIME_CONFIG["polling"]["slow_seconds"])
 DEFAULT_TICK_JUMP_THRESHOLD = float(RUNTIME_CONFIG["alerts"]["tick_jump_threshold"])
+DEFAULT_TICK_JUMP_THRESHOLDS: dict = RUNTIME_CONFIG["alerts"].get("tick_jump_thresholds", {})
 DEFAULT_ALERT_MAX_HISTORY = int(RUNTIME_CONFIG["alerts"]["max_history"])
 FRONTEND_DEFAULT_API_HOST = RUNTIME_CONFIG["frontend"]["default_api_host"]
 FRONTEND_FALLBACK_PORT = int(RUNTIME_CONFIG["frontend"]["fallback_port"])
