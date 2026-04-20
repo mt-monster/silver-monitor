@@ -4,7 +4,7 @@
   --border:#30363d;--text:#c9d1d9;--text2:#8b949e;--text3:#484f58;
   --red:#f85149;--red2:#da3633;--red-bg:rgba(248,81,73,.1);
   --green:#3fb950;--green2:#238636;--green-bg:rgba(63,185,80,.1);
-  --yellow:#d29922;--blue:#58a6ff;--cyan:#39d2c0;--orange:#f0883e;
+  --yellow:#d29922;--blue:#58a6ff;--cyan:#39d2c0;--orange:#f0883e;--purple:#a371f7;
   --mono:'JetBrains Mono',monospace;
 }
 html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.5;height:100%}
@@ -150,6 +150,20 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .signal-bar-inner.bear{background:linear-gradient(90deg,var(--green),var(--yellow))}
 .signal-bar-inner.flat{background:var(--text3)}
 .signal-note{font-size:9px;color:var(--text3);margin-top:6px}
+
+/* Reversal Signal Card */
+.reversal-card{border-left:3px solid var(--purple,#a371f7)}
+.rv-tag{font-size:9px;padding:1px 6px;border-radius:4px;background:rgba(163,113,247,.12);color:var(--purple,#a371f7)}
+
+/* Drag & Drop */
+.sortable-container{display:flex;flex-direction:column;gap:0}
+.drag-section{position:relative;transition:transform .2s,box-shadow .2s}
+.drag-handle{position:absolute;top:4px;right:8px;z-index:5;cursor:grab;font-size:14px;color:var(--text3);opacity:0;transition:opacity .2s;user-select:none;padding:2px 4px;border-radius:4px}
+.drag-section:hover .drag-handle{opacity:.6}
+.drag-handle:hover{opacity:1!important;background:var(--bg2);color:var(--text)}
+.drag-handle:active{cursor:grabbing}
+.drag-section.dragging{opacity:.4;transform:scale(.98);box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.drag-section.drag-over{border-top:2px solid var(--cyan);margin-top:-2px}
 
 /* Tab Bar */
 .tab-bar{display:flex;gap:4px;margin-bottom:16px;background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:4px}

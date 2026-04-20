@@ -33,6 +33,7 @@
     Monitor.renderTickTables();
     Monitor.updateRtCharts();
     Monitor.updateMomentumSignals(data);
+    Monitor.updateReversalSignals(data);
 
     Monitor.updateGoldPriceCards(data);
     Monitor.recordGoldTicks(data);
@@ -70,6 +71,7 @@
     Monitor.renderTickTables();
     Monitor.updateRtCharts();
     Monitor.updateMomentumSignals(data);
+    Monitor.updateReversalSignals(data);
 
     Monitor.updateGoldPriceCards(data);
     Monitor.recordGoldTicks(data);

@@ -35,7 +35,9 @@
       "cooldown_bars": 0,
       "bb_period": 20,
       "bb_mult": 2.0,
-      "rsi_period": 14
+      "rsi_period": 14,
+      "bb_buy_kill": 0.3,
+      "bb_sell_kill": 0.7
     },
     "category_defaults": {
       "贵金属": { "short_p": 8, "long_p": 21, "spread_entry": 0.12, "slope_entry": 0.025, "rsi_period": 14 },
@@ -67,7 +69,9 @@
       "cooldown_bars": 2,
       "bb_period": 10,
       "bb_mult": 2.0,
-      "rsi_period": 14
+      "rsi_period": 14,
+      "bb_buy_kill": 0.15,
+      "bb_sell_kill": 0.85
     },
     "hujin": {
       "short_p": 8,
@@ -91,7 +95,9 @@
       "cooldown_bars": 2,
       "bb_period": 10,
       "bb_mult": 2.0,
-      "rsi_period": 14
+      "rsi_period": 14,
+      "bb_buy_kill": 0.15,
+      "bb_sell_kill": 0.85
     },
     "btc": {
       "short_p": 5,

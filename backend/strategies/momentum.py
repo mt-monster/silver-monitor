@@ -19,6 +19,8 @@ class MomentumParams:
     bb_period: int = 20
     bb_mult: float = 2.0
     rsi_period: int = 14  # 0 = disabled
+    bb_buy_kill: float = 0.3   # buy 信号在 %B 低于此值时被压制为 neutral
+    bb_sell_kill: float = 0.7  # sell 信号在 %B 高于此值时被压制为 neutral
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -112,21 +114,24 @@ def bollinger_series(values: list[float], period: int, mult: float) -> list[dict
     return out
 
 
-def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool) -> str:
+def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool,
+                  buy_kill: float = 0.3, sell_kill: float = 0.7) -> str:
     """
     用 Bollinger %B 位置和带宽变化修正 EMA 动量信号。
 
+    buy_kill / sell_kill 可按品种配置，降低阈值可减少压制、提升灵敏度。
+
     规则：
-    - buy  + %B < 0.3        → neutral     位置与方向矛盾
+    - buy  + %B < buy_kill    → neutral     位置与方向矛盾
     - buy  + %B > 0.5 + 扩张  → strong_buy  趋势/位置/波动率三确认
     - strong_buy + %B > 1.0   → buy         过度延伸
-    - sell + %B > 0.7         → neutral     位置与方向矛盾
+    - sell + %B > sell_kill    → neutral     位置与方向矛盾
     - sell + %B < 0.5 + 扩张  → strong_sell 三确认
     - strong_sell + %B < 0.0  → sell        超卖反弹风险
     """
     sig = base_signal
     if sig == "buy":
-        if pct_b < 0.3:
+        if pct_b < buy_kill:
             sig = "neutral"
         elif pct_b > 0.5 and bw_expanding:
             sig = "strong_buy"
@@ -134,7 +139,7 @@ def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool) -> str:
         if pct_b > 1.0:
             sig = "buy"
     elif sig == "sell":
-        if pct_b > 0.7:
+        if pct_b > sell_kill:
             sig = "neutral"
         elif pct_b < 0.5 and bw_expanding:
             sig = "strong_sell"
@@ -194,7 +199,8 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         bb_prev = bollinger_at(vals[:-1], p.bb_period, p.bb_mult) if len(vals) > p.bb_period else None
         if bb_now:
             bw_expanding = bb_prev is not None and bb_now["bandwidth"] > bb_prev["bandwidth"]
-            signal = _fuse_with_bb(signal, bb_now["percentB"], bw_expanding)
+            signal = _fuse_with_bb(signal, bb_now["percentB"], bw_expanding,
+                                   buy_kill=p.bb_buy_kill, sell_kill=p.bb_sell_kill)
             # Squeeze: 当前带宽 ≤ 近 bb_period 根 bar 最小带宽
             if len(vals) >= p.bb_period * 2:
                 bws: list[float] = []

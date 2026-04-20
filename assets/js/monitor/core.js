@@ -95,6 +95,8 @@
         bbMult: Number(defaults.bb_mult != null ? defaults.bb_mult : 2.0),
         rsiPeriod: Number(defaults.rsi_period != null ? defaults.rsi_period : 14),
         cooldownBars: Number(defaults.cooldown_bars != null ? defaults.cooldown_bars : 0),
+        bbBuyKill: Number(defaults.bb_buy_kill != null ? defaults.bb_buy_kill : 0.3),
+        bbSellKill: Number(defaults.bb_sell_kill != null ? defaults.bb_sell_kill : 0.7),
       },
     };
 
@@ -112,6 +114,8 @@
         bbMult: Number(c.bb_mult ?? defaults.bb_mult ?? 2.0),
         rsiPeriod: Number(c.rsi_period ?? defaults.rsi_period ?? 14),
         cooldownBars: Number(c.cooldown_bars ?? defaults.cooldown_bars ?? 0),
+        bbBuyKill: Number(c.bb_buy_kill ?? defaults.bb_buy_kill ?? 0.3),
+        bbSellKill: Number(c.bb_sell_kill ?? defaults.bb_sell_kill ?? 0.7),
         shortP: Number(c.short_p ?? defaults.short_p),
         longP: Number(c.long_p ?? defaults.long_p),
       };
@@ -130,6 +134,8 @@
         bbMult: Number(s.bb_mult ?? defaults.bb_mult ?? 2.0),
         rsiPeriod: Number(s.rsi_period ?? defaults.rsi_period ?? 14),
         cooldownBars: Number(s.cooldown_bars ?? defaults.cooldown_bars ?? 0),
+        bbBuyKill: Number(s.bb_buy_kill ?? defaults.bb_buy_kill ?? 0.3),
+        bbSellKill: Number(s.bb_sell_kill ?? defaults.bb_sell_kill ?? 0.7),
       };
     });
 
@@ -145,6 +151,16 @@
       };
     });
     if (typeof Monitor.refreshMomentumLabels === "function") Monitor.refreshMomentumLabels();
+
+    // ── 反转策略参数加载 ──────────────────────────────────────
+    const reversal = config?.reversal || {};
+    const rvDefaults = reversal.default || {};
+    Monitor.reversalConfig = reversal;
+    Monitor.reversalParams = { default: { ...rvDefaults } };
+    Object.keys(reversal).forEach(symbol => {
+      if (symbol === "default" || typeof reversal[symbol] !== "object") return;
+      Monitor.reversalParams[symbol] = { ...rvDefaults, ...reversal[symbol] };
+    });
   };
 
   // 品种 ID 别名映射（detail 页用 instrument ID，momentum 页/配置用 legacy key）
@@ -176,6 +192,14 @@
       return { shortP: c.shortP || d.shortP, longP: c.longP || d.longP };
     }
     return d;
+  };
+
+  // 获取特定品种的反转策略参数
+  Monitor.getReversalParams = function (symbol) {
+    const d = Monitor.reversalParams?.default || {};
+    const key = symbol && _symbolAliases[symbol] || symbol;
+    if (key && Monitor.reversalParams?.[key]) return { ...d, ...Monitor.reversalParams[key] };
+    return { ...d };
   };
 
   Monitor.loadRuntimeConfig = async function () {

@@ -96,6 +96,8 @@ def _momentum_params_for(inst_id: str):
         bb_period=int(m.get("bb_period", 20)),
         bb_mult=float(m.get("bb_mult", 2.0)),
         rsi_period=int(m.get("rsi_period", 14)),
+        bb_buy_kill=float(m.get("bb_buy_kill", 0.3)),
+        bb_sell_kill=float(m.get("bb_sell_kill", 0.7)),
     )
 
 

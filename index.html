@@ -134,8 +134,12 @@
 
   <!-- ════ Silver Tab ════ -->
   <div class="tab-content" id="silverTab">
+  <div class="sortable-container" id="silverSortable">
+
   <!-- Price Cards -->
-  <div class="price-row">
+  <div class="drag-section" data-section="price">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="price-row">
     <div class="card" id="huCard">
       <div class="card-label">🔴 沪银主力 <span class="badge">AG0</span></div>
       <div class="price-main" id="huPrice">--</div>
@@ -157,9 +161,12 @@
       <div class="spread-detail" id="spreadDetail"></div>
     </div>
   </div>
+  </div>
 
   <!-- Momentum Signal -->
-  <div class="signal-row">
+  <div class="drag-section" data-section="momentum">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="signal-row">
     <div class="signal-card">
       <div class="signal-head">
         <div class="label">🔴 沪银动量信号 <span class="ema-tag">EMA5/20（张口+短线斜率）</span></div>
@@ -199,9 +206,57 @@
       <div class="signal-note" id="coSigNote">需至少 22 个有效价格点后计算</div>
     </div>
   </div>
+  </div>
+
+  <!-- Reversal Signal -->
+  <div class="drag-section" data-section="reversal">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="signal-row">
+      <div class="signal-card reversal-card">
+        <div class="signal-head">
+          <div class="label">🔴 沪银反转信号 <span class="rv-tag">RSI+Boll%B+EMA偏离</span></div>
+          <span id="huRvPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="huRvBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span>综合得分</span><span class="val" id="huRvScore">--</span></div>
+            <div class="row"><span>RSI分</span><span class="val" id="huRvRsiScore">--</span></div>
+            <div class="row"><span>Boll%B分</span><span class="val" id="huRvBbScore">--</span></div>
+            <div class="row"><span>偏离度分</span><span class="val" id="huRvDevScore">--</span></div>
+            <div class="row"><span>RSI</span><span class="val" id="huRvRSI">--</span></div>
+            <div class="row"><span>偏离%</span><span class="val" id="huRvDev">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="huRvBar" style="width:50%"></div></div>
+        <div class="signal-note" id="huRvNote">需至少 22 个有效价格点后计算</div>
+      </div>
+      <div class="signal-card reversal-card">
+        <div class="signal-head">
+          <div class="label">🟢 COMEX反转信号 <span class="rv-tag">RSI+Boll%B+EMA偏离</span></div>
+          <span id="coRvPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="coRvBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span>综合得分</span><span class="val" id="coRvScore">--</span></div>
+            <div class="row"><span>RSI分</span><span class="val" id="coRvRsiScore">--</span></div>
+            <div class="row"><span>Boll%B分</span><span class="val" id="coRvBbScore">--</span></div>
+            <div class="row"><span>偏离度分</span><span class="val" id="coRvDevScore">--</span></div>
+            <div class="row"><span>RSI</span><span class="val" id="coRvRSI">--</span></div>
+            <div class="row"><span>偏离%</span><span class="val" id="coRvDev">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="coRvBar" style="width:50%"></div></div>
+        <div class="signal-note" id="coRvNote">需至少 22 个有效价格点后计算</div>
+      </div>
+    </div>
+  </div>
 
   <!-- Real-time Price Charts (from fast poll, no history dependency) -->
-  <div class="chart-row">
+  <div class="drag-section" data-section="rtcharts">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="chart-row">
     <div class="chart-card">
       <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银实时走势 <span class="rt-badge">LIVE</span> <span class="rt-count" id="huRtCount">0点</span></div>
       <div class="chart-wrap"><canvas id="huRtChart"></canvas></div>
@@ -211,9 +266,12 @@
       <div class="chart-wrap"><canvas id="coRtChart"></canvas></div>
     </div>
   </div>
+  </div>
 
   <!-- Historical Price Charts -->
-  <div class="chart-row">
+  <div class="drag-section" data-section="history">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="chart-row">
     <div class="chart-card">
       <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银历史走势 (元/kg) <span class="hist-badge">HISTORY</span></div>
       <div class="chart-wrap"><canvas id="huChart"></canvas></div>
@@ -223,9 +281,12 @@
       <div class="chart-wrap"><canvas id="coChart"></canvas></div>
     </div>
   </div>
+  </div>
 
   <!-- Volatility Charts -->
-  <div class="vol-row">
+  <div class="drag-section" data-section="volatility">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="vol-row">
     <div class="vol-card">
       <div class="chart-title"><div class="dot" style="background:var(--red)"></div>沪银波动率 HV20 (年化%)</div>
       <div class="chart-wrap"><canvas id="huVolChart"></canvas></div>
@@ -235,9 +296,12 @@
       <div class="chart-wrap"><canvas id="coVolChart"></canvas></div>
     </div>
   </div>
+  </div>
 
   <!-- ATR -->
-  <div class="atr-row">
+  <div class="drag-section" data-section="atr">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="atr-row">
     <div class="atr-card">
       <div class="atr-label">沪银 ATR(14)</div>
       <div class="atr-val" id="huATR">--</div>
@@ -249,9 +313,12 @@
       <div class="atr-bar"><div class="atr-bar-fill comex" id="coATRBar" style="width:0%"></div></div>
     </div>
   </div>
+  </div>
 
   <!-- Alert Section -->
-  <div class="alert-section">
+  <div class="drag-section" data-section="alerts">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="alert-section">
     <div class="card">
       <div class="alert-header">
         <h3>🔔 3-Tick 跳动预警</h3>
@@ -290,9 +357,12 @@
       </div>
     </div>
   </div>
+  </div>
 
   <!-- Tick Records -->
-  <div class="tick-dual-row">
+  <div class="drag-section" data-section="ticks">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="tick-dual-row">
     <div class="tick-col-card">
       <div class="tick-col-header">
         <h3>🔴 沪银刷新记录</h3>
@@ -318,6 +388,9 @@
       </div>
     </div>
   </div>
+  </div>
+
+  </div><!-- /silverSortable -->
   </div><!-- /silverTab -->
 
   <!-- ════ Gold Tab ════ -->
@@ -558,6 +631,7 @@
 <script src="assets/js/monitor/crypto.js"></script>
 <script src="assets/js/monitor/dashboard.js"></script>
 <script src="assets/js/monitor/detail.js"></script>
+<script src="assets/js/monitor/drag.js"></script>
 <script src="assets/js/monitor/app.js"></script>
 </body>
 </html>

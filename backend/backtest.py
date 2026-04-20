@@ -302,6 +302,8 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         bb_period=int(p.get("bb_period", merged.get("bb_period", 20))),
         bb_mult=float(p.get("bb_mult", merged.get("bb_mult", 2.0))),
         rsi_period=int(p.get("rsi_period", merged.get("rsi_period", 14))),
+        bb_buy_kill=float(p.get("bb_buy_kill", merged.get("bb_buy_kill", 0.3))),
+        bb_sell_kill=float(p.get("bb_sell_kill", merged.get("bb_sell_kill", 0.7))),
     )
 
 
@@ -433,6 +435,8 @@ def run_grid_search(
                 bb_period=int(override.get("bb_period", 20)),
                 bb_mult=float(override.get("bb_mult", 2.0)),
                 rsi_period=int(override.get("rsi_period", 14)),
+                bb_buy_kill=float(override.get("bb_buy_kill", 0.3)),
+                bb_sell_kill=float(override.get("bb_sell_kill", 0.7)),
             )
         except (TypeError, ValueError):
             continue
