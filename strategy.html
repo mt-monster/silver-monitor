@@ -7,6 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/css/monitor.css">
 </head>
@@ -23,19 +25,261 @@
     </div>
   </div>
 
+  <!-- ══ 策略选择标签 ══ -->
+  <div class="strategy-tabs">
+    <button class="strategy-tab active" data-strategy="momentum" onclick="switchStrategy('momentum')">动量策略 (Momentum)</button>
+    <button class="strategy-tab" data-strategy="reversal" onclick="switchStrategy('reversal')">反转策略 (Reversal)</button>
+  </div>
+
+  <!-- ══ 动量策略说明 ══ -->
+  <div class="card strategy-panel strategy-explain" id="momentumExplain">
+    <div class="card-label">
+      动量策略原理说明
+      <span class="badge" style="cursor:pointer" onclick="this.parentElement.nextElementSibling.classList.toggle('collapsed')">展开 / 收起</span>
+    </div>
+    <div class="collapsed">
+
+    <div class="explain-section">
+      <div class="explain-title">一、核心框架：三因子融合动量策略</div>
+      <p class="explain-text">策略由 <strong>EMA 均线动量</strong>（主因子）、<strong>Bollinger Band 波动率</strong>（确认因子）、<strong>RSI 动量耗竭</strong>（否决因子）三层信号融合决策。三因子独立计算、顺序融合，每层可独立关闭。</p>
+      <div class="explain-flow">
+        <span class="flow-step">EMA 张口 + 斜率</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">Bollinger 位置确认</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">RSI 极值过滤</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step final">最终信号</span>
+      </div>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">二、因子 1 — EMA 均线动量（核心信号）</div>
+      <p class="explain-text"><strong>经济学含义</strong>：短期 EMA 反映近期市场情绪，长期 EMA 反映趋势中枢。当短 EMA 向上穿越长 EMA 且"张口"足够大时，表明短期买方力量持续超越趋势均衡，构成看多动量。斜率条件确保动量正在加速而非减速。</p>
+      <div class="formula-block">
+        <div class="formula-label">EMA 递推公式</div>
+        <div class="formula" data-formula="EMA_t = \alpha \cdot P_t + (1-\alpha) \cdot EMA_{t-1}, \quad \alpha = \frac{2}{N+1}"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">张口度（Spread）</div>
+        <div class="formula" data-formula="\text{Spread\%} = \frac{EMA_{short} - EMA_{long}}{EMA_{long}} \times 100"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">短线斜率（Slope）</div>
+        <div class="formula" data-formula="\text{Slope\%} = \frac{EMA_{short}^{(t)} - EMA_{short}^{(t-1)}}{EMA_{short}^{(t-1)}} \times 100"></div>
+      </div>
+      <table class="explain-table">
+        <thead><tr><th>条件</th><th>信号</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>Spread &gt; spread_entry 且 Slope &gt; slope_entry</td><td class="sig-buy">BUY</td><td>趋势向上且加速中</td></tr>
+          <tr><td>Spread &gt; spread_strong</td><td class="sig-strong-buy">STRONG BUY</td><td>强势上涨趋势</td></tr>
+          <tr><td>Spread &lt; −spread_entry 且 Slope &lt; −slope_entry</td><td class="sig-sell">SELL</td><td>趋势向下且加速中</td></tr>
+          <tr><td>Spread &lt; −spread_strong</td><td class="sig-strong-sell">STRONG SELL</td><td>强势下跌趋势</td></tr>
+          <tr><td>其他</td><td class="sig-neutral">NEUTRAL</td><td>无明确方向</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">三、因子 2 — Bollinger Band 波动率确认</div>
+      <p class="explain-text"><strong>经济学含义</strong>：布林带衡量价格偏离均值的程度。%B 表示当前价在带内的相对位置（0=下轨，1=上轨），带宽扩张意味着波动率正在放大——趋势启动的典型特征。该因子的作用是"确认"或"降级"EMA 发出的信号。</p>
+      <div class="formula-block">
+        <div class="formula-label">布林带</div>
+        <div class="formula" data-formula="\text{Mid} = SMA_N, \quad \text{Upper/Lower} = SMA_N \pm k \cdot \sigma_N"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">%B 位置</div>
+        <div class="formula" data-formula="\%B = \frac{P - \text{Lower}}{\text{Upper} - \text{Lower}}"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">带宽</div>
+        <div class="formula" data-formula="\text{BW} = \frac{\text{Upper} - \text{Lower}}{\text{Mid}}"></div>
+      </div>
+      <table class="explain-table">
+        <thead><tr><th>EMA 信号</th><th>布林条件</th><th>修正结果</th><th>原理</th></tr></thead>
+        <tbody>
+          <tr><td>BUY</td><td>%B &gt; 0.5 且带宽扩张</td><td class="sig-strong-buy">→ STRONG BUY</td><td>趋势 + 位置 + 波动率三确认</td></tr>
+          <tr><td>BUY</td><td>%B &lt; 0.3</td><td class="sig-neutral">→ NEUTRAL</td><td>价格仍在下轨附近，方向矛盾</td></tr>
+          <tr><td>STRONG BUY</td><td>%B &gt; 1.0</td><td class="sig-buy">→ BUY</td><td>过度延伸，有回调风险</td></tr>
+          <tr><td>SELL</td><td>%B &lt; 0.5 且带宽扩张</td><td class="sig-strong-sell">→ STRONG SELL</td><td>三确认向下</td></tr>
+          <tr><td>SELL</td><td>%B &gt; 0.7</td><td class="sig-neutral">→ NEUTRAL</td><td>价格仍在上轨附近，矛盾</td></tr>
+          <tr><td>STRONG SELL</td><td>%B &lt; 0.0</td><td class="sig-sell">→ SELL</td><td>超卖有反弹风险</td></tr>
+        </tbody>
+      </table>
+      <p class="explain-text"><strong>Squeeze 检测</strong>：当带宽收缩至近 N 根 K 线的最小值时触发 Squeeze 标记，预示即将出现方向性突破。</p>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">四、因子 3 — RSI 动量耗竭过滤</div>
+      <p class="explain-text"><strong>经济学含义</strong>：RSI 衡量近期涨跌幅的相对强度。极端高值表示买方力量即将耗竭（超买），极端低值表示卖方力量即将耗竭（超卖）。该因子作为"否决器"：在极端区域降级或取消信号，防止追高/追低。</p>
+      <div class="formula-block">
+        <div class="formula-label">RSI 公式</div>
+        <div class="formula" data-formula="RSI = 100 - \frac{100}{1 + \frac{AvgGain_N}{AvgLoss_N}}"></div>
+      </div>
+      <table class="explain-table">
+        <thead><tr><th>融合前信号</th><th>RSI 条件</th><th>修正结果</th><th>原理</th></tr></thead>
+        <tbody>
+          <tr><td>BUY</td><td>RSI &gt; 75</td><td class="sig-neutral">→ NEUTRAL</td><td>超买区追多风险大</td></tr>
+          <tr><td>STRONG BUY</td><td>RSI &gt; 85</td><td class="sig-buy">→ BUY</td><td>极度超买，降级</td></tr>
+          <tr><td>SELL</td><td>RSI &lt; 25</td><td class="sig-neutral">→ NEUTRAL</td><td>超卖区追空风险大</td></tr>
+          <tr><td>STRONG SELL</td><td>RSI &lt; 15</td><td class="sig-sell">→ SELL</td><td>极度超卖，降级</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">五、信号强度与冷却</div>
+      <div class="formula-block">
+        <div class="formula-label">信号强度</div>
+        <div class="formula" data-formula="\text{Strength} = \min\big(100,\; |\text{Spread\%}| \times \text{multiplier}\big)"></div>
+      </div>
+      <p class="explain-text"><strong>Cooldown</strong>：交易执行后冷却 N 根 K 线内不再发出同向新信号，降低频繁切换带来的手续费损耗。</p>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">六、参数经济学含义速查</div>
+      <table class="explain-table">
+        <thead><tr><th>参数</th><th>默认</th><th>含义</th><th>调大效果</th><th>调小效果</th></tr></thead>
+        <tbody>
+          <tr><td>short_p</td><td>5</td><td>短 EMA 窗口</td><td>更平滑，信号更少</td><td>更灵敏，噪声更多</td></tr>
+          <tr><td>long_p</td><td>20</td><td>长 EMA 窗口</td><td>趋势判定更慢</td><td>趋势判定更快</td></tr>
+          <tr><td>spread_entry</td><td>0.10%</td><td>张口入场阈值</td><td>过滤更严，信号更少</td><td>更敏感，信号更多</td></tr>
+          <tr><td>spread_strong</td><td>0.35%</td><td>强信号阈值</td><td>强信号更难触发</td><td>强信号更容易触发</td></tr>
+          <tr><td>slope_entry</td><td>0.02%</td><td>加速度门槛</td><td>需要更强的加速</td><td>弱加速即可触发</td></tr>
+          <tr><td>bb_period</td><td>20</td><td>布林带窗口</td><td>波动率更平滑</td><td>波动率更敏感</td></tr>
+          <tr><td>bb_mult</td><td>2.0</td><td>布林带宽度倍数</td><td>带更宽，%B 更集中</td><td>带更窄，信号更多</td></tr>
+          <tr><td>rsi_period</td><td>14</td><td>RSI 窗口</td><td>过滤更平滑</td><td>过滤更灵敏</td></tr>
+          <tr><td>cooldown_bars</td><td>0</td><td>信号冷却 K 线数</td><td>减少频繁交易</td><td>允许快速响应</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+  </div>
+
+  <!-- ══ 反转策略说明 ══ -->
+  <div class="card strategy-panel strategy-explain" id="reversalExplain" style="display:none">
+    <div class="card-label">
+      反转策略原理说明
+      <span class="badge" style="cursor:pointer" onclick="this.parentElement.nextElementSibling.classList.toggle('collapsed')">展开 / 收起</span>
+    </div>
+    <div class="collapsed">
+
+    <div class="explain-section">
+      <div class="explain-title">一、核心框架：三因子加权均值回归策略</div>
+      <p class="explain-text">策略基于<strong>均值回归</strong>理论：当价格大幅偏离均值且技术指标显示动量耗竭时，赌价格向均值回归。与动量策略互补——动量追趋势，反转捕拐点。</p>
+      <div class="explain-flow">
+        <span class="flow-step">RSI 超买超卖</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">Bollinger %B 极值</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">EMA 偏离度</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">加权评分</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step final">反转信号</span>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">综合评分</div>
+        <div class="formula" data-formula="S = w_{RSI} \cdot S_{RSI} + w_{BB} \cdot S_{BB} + w_{Dev} \cdot S_{Dev}"></div>
+      </div>
+      <p class="explain-text">每个因子独立产生 −1 到 +1 的分数（正=看多反转，负=看空反转），加权求和后与阈值比较决定信号。</p>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">二、因子 1 — RSI 超买超卖（权重 40%）</div>
+      <p class="explain-text"><strong>经济学含义</strong>：RSI 衡量近期涨跌力度的相对强弱。当 RSI 跌入超卖区（&lt;30），说明连续下跌动能耗竭，空方力量枯竭，反弹概率增大；当 RSI 进入超买区（&gt;70），说明连续上涨动能衰减，回调概率增大。</p>
+      <div class="formula-block">
+        <div class="formula-label">RSI 公式</div>
+        <div class="formula" data-formula="RSI = 100 - \frac{100}{1 + \frac{AvgGain_N}{AvgLoss_N}}"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">RSI 分数映射</div>
+        <div class="formula" data-formula="S_{RSI} = \begin{cases} +1.0 & RSI \leq 20 \text{（极端超卖）} \\ +\frac{30 - RSI}{10} & 20 < RSI \leq 30 \text{（超卖区线性）} \\ 0 & 30 < RSI < 70 \\ -\frac{RSI - 70}{10} & 70 \leq RSI < 80 \text{（超买区线性）} \\ -1.0 & RSI \geq 80 \text{（极端超买）} \end{cases}"></div>
+      </div>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">三、因子 2 — Bollinger %B 极值位置（权重 35%）</div>
+      <p class="explain-text"><strong>经济学含义</strong>：%B 衡量价格在布林带内的位置。当 %B 接近 0 或为负值时，价格处于下轨附近或已跌出下轨——统计学上属于 2σ 以外的极端事件，回归均值的概率较高。反之 %B 接近或超过 1 时同理。</p>
+      <div class="formula-block">
+        <div class="formula-label">%B 位置</div>
+        <div class="formula" data-formula="\%B = \frac{P - \text{Lower}}{\text{Upper} - \text{Lower}}"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">%B 分数映射</div>
+        <div class="formula" data-formula="S_{BB} = \begin{cases} +1.0 & \%B \leq -0.05 \\ +\frac{0.05 - \%B}{0.10} & -0.05 < \%B \leq 0.05 \\ 0 & 0.05 < \%B < 0.95 \\ -\frac{\%B - 0.95}{0.10} & 0.95 \leq \%B < 1.05 \\ -1.0 & \%B \geq 1.05 \end{cases}"></div>
+      </div>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">四、因子 3 — EMA 偏离度（权重 25%）</div>
+      <p class="explain-text"><strong>经济学含义</strong>：价格偏离均线越远，向均线回归的"拉力"越大。当偏离超过阈值，市场可能已过度反应，存在纠偏机会。价格低于 EMA 产生正分（看多反转），高于 EMA 产生负分（看空反转）。</p>
+      <div class="formula-block">
+        <div class="formula-label">偏离度</div>
+        <div class="formula" data-formula="\text{Dev\%} = \frac{P - EMA_N}{EMA_N} \times 100"></div>
+      </div>
+      <div class="formula-block">
+        <div class="formula-label">偏离度分数映射</div>
+        <div class="formula" data-formula="S_{Dev} = \begin{cases} \text{sgn}(-Dev) \cdot 1.0 & |Dev\%| \geq 2.5 \\ \text{sgn}(-Dev) \cdot \frac{|Dev\%| - 1.5}{1.0} & 1.5 \leq |Dev\%| < 2.5 \\ 0 & |Dev\%| < 1.5 \end{cases}"></div>
+      </div>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">五、信号判定</div>
+      <table class="explain-table">
+        <thead><tr><th>综合得分</th><th>信号</th><th>含义</th></tr></thead>
+        <tbody>
+          <tr><td>S ≥ 0.8</td><td class="sig-strong-buy">STRONG BUY</td><td>多因子共振超卖，强反弹预期</td></tr>
+          <tr><td>0.5 ≤ S &lt; 0.8</td><td class="sig-buy">BUY</td><td>有反弹迹象</td></tr>
+          <tr><td>−0.5 &lt; S &lt; 0.5</td><td class="sig-neutral">NEUTRAL</td><td>无明确反转信号</td></tr>
+          <tr><td>−0.8 &lt; S ≤ −0.5</td><td class="sig-sell">SELL</td><td>有回调迹象</td></tr>
+          <tr><td>S ≤ −0.8</td><td class="sig-strong-sell">STRONG SELL</td><td>多因子共振超买，强回调预期</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">六、与动量策略的互补关系</div>
+      <table class="explain-table">
+        <thead><tr><th>维度</th><th>动量策略</th><th>反转策略</th></tr></thead>
+        <tbody>
+          <tr><td>核心假设</td><td>趋势延续</td><td>均值回归</td></tr>
+          <tr><td>适用市场</td><td>趋势行情</td><td>震荡 / 极端行情</td></tr>
+          <tr><td>入场时机</td><td>趋势确认后</td><td>动量耗竭时</td></tr>
+          <tr><td>信号逻辑</td><td>顺势：EMA 金叉 + 扩张</td><td>逆势：RSI 极值 + %B 极端 + 偏离</td></tr>
+          <tr><td>风险特征</td><td>震荡市假信号多</td><td>强趋势中逆势亏损</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="explain-section">
+      <div class="explain-title">七、参数经济学含义速查</div>
+      <table class="explain-table">
+        <thead><tr><th>参数</th><th>默认</th><th>含义</th><th>调大效果</th><th>调小效果</th></tr></thead>
+        <tbody>
+          <tr><td>rsi_period</td><td>14</td><td>RSI 计算窗口</td><td>更平滑，信号更少</td><td>更灵敏，噪声更多</td></tr>
+          <tr><td>rsi_oversold</td><td>30</td><td>超卖入场线</td><td>需更极端才触发</td><td>更容易触发看多</td></tr>
+          <tr><td>rsi_overbought</td><td>70</td><td>超买入场线</td><td>更容易触发看空</td><td>需更极端才触发</td></tr>
+          <tr><td>bb_period</td><td>20</td><td>布林带窗口</td><td>带更稳定</td><td>带更敏感</td></tr>
+          <tr><td>pctb_low</td><td>0.05</td><td>%B 低位阈值</td><td>需跌得更深</td><td>更容易触发</td></tr>
+          <tr><td>ema_period</td><td>20</td><td>均线窗口</td><td>均值更慢</td><td>均值更快</td></tr>
+          <tr><td>deviation_entry</td><td>1.5%</td><td>偏离入场门槛</td><td>需偏离更远</td><td>更容易触发</td></tr>
+          <tr><td>min_score</td><td>0.5</td><td>最低信号分数</td><td>信号更少更确定</td><td>信号更多更激进</td></tr>
+          <tr><td>cooldown_bars</td><td>2</td><td>冷却 K 线数</td><td>减少频繁交易</td><td>允许快速响应</td></tr>
+        </tbody>
+      </table>
+    </div>
+    </div>
+  </div>
+
   <!-- ══ 回测面板 ══ -->
   <div class="card strategy-panel">
-    <div class="card-label">动量策略回测（EMA + Boll + RSI 融合信号）</div>
+    <div class="card-label" id="backtestLabel">动量策略回测（EMA + Boll + RSI 融合信号）</div>
     <p class="strategy-meta">
       国内品种约 200 根 60 分钟 K 线，国际品种约 60 根日线。需安装 AkShare。
     </p>
 
     <div class="strategy-form">
-      <label>策略
-        <select id="strategySelect">
-          <option value="momentum">动量 EMA+Boll+RSI</option>
-        </select>
-      </label>
       <label>标的
         <select id="symbolSelect">
           <option value="">加载中...</option>
@@ -47,33 +291,90 @@
           <option value="long_short">Long-Short</option>
         </select>
       </label>
-      <label>短周期
-        <input type="number" id="shortP" value="5" min="2" max="60" step="1">
-      </label>
-      <label>长周期
-        <input type="number" id="longP" value="20" min="5" max="120" step="1">
-      </label>
-      <label>短线斜率阈值 (%)
-        <input type="number" id="slopeEntry" value="0.02" min="0" step="0.001">
-      </label>
-      <label>张口阈值 (%)
-        <input type="number" id="spreadEntry" value="0.10" min="0" step="0.01">
-      </label>
-      <label>强信号张口 (%)
-        <input type="number" id="spreadStrong" value="0.35" min="0" step="0.01">
-      </label>
-      <label>BB周期
-        <input type="number" id="bbPeriod" value="20" min="0" max="100" step="1">
-      </label>
-      <label>BB倍数
-        <input type="number" id="bbMult" value="2.0" min="0" max="5" step="0.1">
-      </label>
-      <label>RSI周期
-        <input type="number" id="rsiPeriod" value="14" min="0" max="60" step="1">
-      </label>
-      <label>冷却K线
-        <input type="number" id="cooldownBars" value="0" min="0" max="20" step="1">
-      </label>
+    </div>
+
+    <!-- 动量策略参数 -->
+    <div id="momentumParams">
+      <div class="strategy-form">
+        <label>短周期
+          <input type="number" id="shortP" value="5" min="2" max="60" step="1">
+        </label>
+        <label>长周期
+          <input type="number" id="longP" value="20" min="5" max="120" step="1">
+        </label>
+        <label>短线斜率阈值 (%)
+          <input type="number" id="slopeEntry" value="0.02" min="0" step="0.001">
+        </label>
+        <label>张口阈值 (%)
+          <input type="number" id="spreadEntry" value="0.10" min="0" step="0.01">
+        </label>
+        <label>强信号张口 (%)
+          <input type="number" id="spreadStrong" value="0.35" min="0" step="0.01">
+        </label>
+        <label>BB周期
+          <input type="number" id="bbPeriod" value="20" min="0" max="100" step="1">
+        </label>
+        <label>BB倍数
+          <input type="number" id="bbMult" value="2.0" min="0" max="5" step="0.1">
+        </label>
+        <label>RSI周期
+          <input type="number" id="rsiPeriod" value="14" min="0" max="60" step="1">
+        </label>
+        <label>冷却K线
+          <input type="number" id="cooldownBars" value="0" min="0" max="20" step="1">
+        </label>
+      </div>
+    </div>
+
+    <!-- 反转策略参数 -->
+    <div id="reversalParams" style="display:none">
+      <div class="strategy-form">
+        <label>RSI周期
+          <input type="number" id="rvRsiPeriod" value="14" min="2" max="60" step="1">
+        </label>
+        <label>RSI超卖线
+          <input type="number" id="rvRsiOversold" value="30" min="5" max="50" step="1">
+        </label>
+        <label>RSI超买线
+          <input type="number" id="rvRsiOverbought" value="70" min="50" max="95" step="1">
+        </label>
+        <label>RSI极端低
+          <input type="number" id="rvRsiExtremeLow" value="20" min="1" max="40" step="1">
+        </label>
+        <label>RSI极端高
+          <input type="number" id="rvRsiExtremeHigh" value="80" min="60" max="99" step="1">
+        </label>
+        <label>BB周期
+          <input type="number" id="rvBbPeriod" value="20" min="5" max="100" step="1">
+        </label>
+        <label>BB倍数
+          <input type="number" id="rvBbMult" value="2.0" min="0.5" max="5" step="0.1">
+        </label>
+        <label>%B低位阈值
+          <input type="number" id="rvPctbLow" value="0.05" min="-0.5" max="0.5" step="0.01">
+        </label>
+        <label>%B高位阈值
+          <input type="number" id="rvPctbHigh" value="0.95" min="0.5" max="1.5" step="0.01">
+        </label>
+        <label>EMA周期
+          <input type="number" id="rvEmaPeriod" value="20" min="5" max="100" step="1">
+        </label>
+        <label>偏离入场 (%)
+          <input type="number" id="rvDeviationEntry" value="1.5" min="0.1" max="10" step="0.1">
+        </label>
+        <label>偏离强信号 (%)
+          <input type="number" id="rvDeviationStrong" value="2.5" min="0.5" max="15" step="0.1">
+        </label>
+        <label>最低分数
+          <input type="number" id="rvMinScore" value="0.5" min="0.1" max="1.0" step="0.05">
+        </label>
+        <label>强信号分数
+          <input type="number" id="rvStrongScore" value="0.8" min="0.3" max="1.0" step="0.05">
+        </label>
+        <label>冷却K线
+          <input type="number" id="rvCooldownBars" value="2" min="0" max="20" step="1">
+        </label>
+      </div>
     </div>
 
     <div class="strategy-form" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
@@ -115,8 +416,8 @@
     <div class="strategy-error" id="wfError" style="display:none"></div>
   </div>
 
-  <!-- ══ Grid Search ══ -->
-  <div class="card strategy-panel" style="margin-top:16px">
+  <!-- ══ Grid Search (动量策略专用) ══ -->
+  <div class="card strategy-panel" style="margin-top:16px" id="gsPanel">
     <div class="card-label">参数优化 Grid Search</div>
     <p class="strategy-meta">选择需要搜索的参数范围（逗号分隔值列表），点击开始搜索。返回 Sharpe 排名前 N 的参数组合。</p>
     <div class="strategy-form">
@@ -151,5 +452,16 @@
 
 <script src="assets/js/monitor/core.js"></script>
 <script src="assets/js/monitor/strategy.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  function renderFormulas() {
+    if (typeof katex === "undefined") { setTimeout(renderFormulas, 100); return; }
+    document.querySelectorAll(".formula[data-formula]").forEach(function (el) {
+      katex.render(el.getAttribute("data-formula"), el, { throwOnError: false, displayMode: true });
+    });
+  }
+  renderFormulas();
+});
+</script>
 </body>
 </html>

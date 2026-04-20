@@ -19,6 +19,7 @@ from backend.sources import (
 )
 from backend.state import state
 from backend.strategies.momentum import MomentumParams, _fuse_with_bb, _fuse_with_rsi, bollinger_series, calc_momentum, ema_series, rsi_series
+from backend.strategies.reversal import ReversalParams, calc_reversal
 
 @dataclass
 class BacktestConfig:
@@ -470,3 +471,164 @@ def run_walk_forward(
         "in_sample": {"bars": split, "metrics": train_result["metrics"]},
         "out_of_sample": {"bars": n - split, "metrics": test_result["metrics"]},
     }
+
+
+# ── 反转策略回测 ─────────────────────────────────────────────────────
+
+def run_reversal_long_only_backtest(
+    bars: list[dict], params: ReversalParams, config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    """反转策略 Long-Only 回测。"""
+    cfg = config or BacktestConfig()
+    cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
+    min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
+    equity_curve: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
+    cash = 1.0
+    shares = 0.0
+    position_long = False
+    cooldown_remaining = 0
+
+    for i in range(len(bars)):
+        t, price = bars[i]["t"], bars[i]["y"]
+        eq_before = cash + shares * price
+
+        if i + 1 < min_len:
+            equity_curve.append({"t": t, "equity": round(eq_before, 6), "price": price})
+            continue
+
+        window = [float(b["y"]) for b in bars[: i + 1]]
+        result = calc_reversal(window, params)
+        sig = result["signal"] if result else "neutral"
+
+        target_long = sig in ("strong_buy", "buy")
+
+        if cooldown_remaining > 0:
+            cooldown_remaining -= 1
+        elif target_long and not position_long and cash > 0 and price > 0:
+            shares = cash * cost_factor / price
+            cash = 0.0
+            position_long = True
+            cooldown_remaining = params.cooldown_bars
+            trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": sig})
+        elif not target_long and position_long and shares > 0 and price > 0:
+            cash = shares * price * cost_factor
+            trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": sig})
+            shares = 0.0
+            position_long = False
+            cooldown_remaining = params.cooldown_bars
+
+        eq = cash + shares * price
+        equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
+
+    metrics = _compute_metrics(equity_curve, trades, bars)
+    if cfg.commission_rate > 0 or cfg.slippage_pct > 0:
+        metrics["note"] = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" + metrics.get("note", "")
+    return {"equity": equity_curve, "trades": trades, "metrics": metrics}
+
+
+def run_reversal_long_short_backtest(
+    bars: list[dict], params: ReversalParams, config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    """反转策略 Long-Short 回测。"""
+    cfg = config or BacktestConfig()
+    cost = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
+    min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
+    equity_curve: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
+    pos = 0
+    entry_p = 0.0
+    capital = 1.0
+    cooldown = 0
+
+    for i in range(len(bars)):
+        t, px = bars[i]["t"], float(bars[i]["y"])
+        if pos == 1 and entry_p > 0:
+            eq = capital * px / entry_p
+        elif pos == -1 and entry_p > 0:
+            eq = capital * max(0.0, 2.0 - px / entry_p)
+        else:
+            eq = capital
+
+        if i + 1 < min_len:
+            equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
+            continue
+
+        window = [float(b["y"]) for b in bars[: i + 1]]
+        result = calc_reversal(window, params)
+        sig = result["signal"] if result else "neutral"
+
+        tgt = 1 if sig in ("strong_buy", "buy") else (-1 if sig in ("strong_sell", "sell") else 0)
+        if cooldown > 0:
+            cooldown -= 1
+        elif tgt != pos and px > 0:
+            if pos == 1 and entry_p > 0:
+                capital *= (px / entry_p) * cost
+                trades.append({"action": "sell", "t": t, "price": round(px, 6), "signal": sig})
+            elif pos == -1 and entry_p > 0:
+                capital *= max(0.0, 2.0 - px / entry_p) * cost
+                trades.append({"action": "cover", "t": t, "price": round(px, 6), "signal": sig})
+            if tgt != 0:
+                capital *= cost
+                entry_p = px
+                trades.append({"action": "buy" if tgt == 1 else "short", "t": t, "price": round(px, 6), "signal": sig})
+            else:
+                entry_p = 0.0
+            pos = tgt
+            cooldown = params.cooldown_bars
+            eq = capital
+        equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
+
+    metrics = _compute_metrics(equity_curve, trades, bars)
+    metrics["mode"] = "long_short"
+    cost_str = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" if (cfg.commission_rate > 0 or cfg.slippage_pct > 0) else "不计手续费与滑点；"
+    metrics["note"] = f"反转 Long-Short，{cost_str}年化按首尾时间线性外推；夏普仅供参考。"
+    return {"equity": equity_curve, "trades": trades, "metrics": metrics}
+
+
+def run_reversal_backtest(
+    bars: list[dict], params: ReversalParams, config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    cfg = config or BacktestConfig()
+    if cfg.mode == "long_short":
+        return run_reversal_long_short_backtest(bars, params, cfg)
+    return run_reversal_long_only_backtest(bars, params, cfg)
+
+
+def reversal_params_from_body(body: dict, symbol: str | None = None) -> ReversalParams:
+    """从请求体和配置文件构建反转策略参数。"""
+    config = RUNTIME_CONFIG.get("reversal") or {}
+    defaults = config.get("default") if isinstance(config.get("default"), dict) else config
+
+    _aliases = {"ag0": "huyin", "xag": "comex", "au0": "hujin", "xau": "comex_gold"}
+    resolved = _aliases.get(symbol, symbol) if symbol else symbol
+
+    symbol_config = {}
+    if resolved and resolved in config and isinstance(config[resolved], dict):
+        symbol_config = config[resolved]
+
+    merged = {**defaults, **symbol_config}
+    p = body.get("params") or {}
+
+    return ReversalParams(
+        rsi_period=int(p.get("rsi_period", merged.get("rsi_period", 14))),
+        rsi_oversold=float(p.get("rsi_oversold", merged.get("rsi_oversold", 30.0))),
+        rsi_overbought=float(p.get("rsi_overbought", merged.get("rsi_overbought", 70.0))),
+        rsi_extreme_low=float(p.get("rsi_extreme_low", merged.get("rsi_extreme_low", 20.0))),
+        rsi_extreme_high=float(p.get("rsi_extreme_high", merged.get("rsi_extreme_high", 80.0))),
+        bb_period=int(p.get("bb_period", merged.get("bb_period", 20))),
+        bb_mult=float(p.get("bb_mult", merged.get("bb_mult", 2.0))),
+        pctb_low=float(p.get("pctb_low", merged.get("pctb_low", 0.05))),
+        pctb_high=float(p.get("pctb_high", merged.get("pctb_high", 0.95))),
+        pctb_extreme_low=float(p.get("pctb_extreme_low", merged.get("pctb_extreme_low", -0.05))),
+        pctb_extreme_high=float(p.get("pctb_extreme_high", merged.get("pctb_extreme_high", 1.05))),
+        ema_period=int(p.get("ema_period", merged.get("ema_period", 20))),
+        deviation_entry=float(p.get("deviation_entry", merged.get("deviation_entry", 1.5))),
+        deviation_strong=float(p.get("deviation_strong", merged.get("deviation_strong", 2.5))),
+        rsi_weight=float(p.get("rsi_weight", merged.get("rsi_weight", 0.4))),
+        bb_weight=float(p.get("bb_weight", merged.get("bb_weight", 0.35))),
+        deviation_weight=float(p.get("deviation_weight", merged.get("deviation_weight", 0.25))),
+        min_score=float(p.get("min_score", merged.get("min_score", 0.5))),
+        strong_score=float(p.get("strong_score", merged.get("strong_score", 0.8))),
+        cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 2))),
+    )

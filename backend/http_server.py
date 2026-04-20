@@ -9,6 +9,7 @@ from http.server import SimpleHTTPRequestHandler
 from backend.backtest import (
     BacktestConfig, load_history, momentum_params_from_body, backtest_config_from_body,
     run_momentum_backtest, run_momentum_long_only_backtest, run_grid_search, run_walk_forward,
+    reversal_params_from_body, run_reversal_backtest,
 )
 from backend.config import CST, FAST_POLL, RUNTIME_CONFIG, SLOW_POLL, log, reload_runtime_config
 from backend.infoway import infoway_available, infoway_crypto_available
@@ -135,8 +136,8 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             symbol = (body.get("symbol") or "").strip().lower()
             mode = (body.get("mode") or "long_only").strip().lower()
 
-            if strategy != "momentum":
-                raise ValueError("only strategy=momentum is supported")
+            if strategy not in ("momentum", "reversal"):
+                raise ValueError("strategy must be momentum or reversal")
             if mode not in ("long_only", "long_short"):
                 raise ValueError("mode must be long_only or long_short")
 
@@ -150,9 +151,13 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": False, "error": "no_history"}).encode())
                 return
 
-            params = momentum_params_from_body(body, symbol)
             bt_cfg = backtest_config_from_body(body)
-            result = run_momentum_backtest(bars, params, bt_cfg)
+            if strategy == "reversal":
+                params = reversal_params_from_body(body, symbol)
+                result = run_reversal_backtest(bars, params, bt_cfg)
+            else:
+                params = momentum_params_from_body(body, symbol)
+                result = run_momentum_backtest(bars, params, bt_cfg)
             t0 = int(bars[0]["t"])
             t1 = int(bars[-1]["t"])
             meta = {

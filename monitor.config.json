@@ -141,5 +141,44 @@
     "symbols": {
       "btc": "BTCUSDT"
     }
+  },
+  "reversal": {
+    "default": {
+      "rsi_period": 14,
+      "rsi_oversold": 30,
+      "rsi_overbought": 70,
+      "rsi_extreme_low": 20,
+      "rsi_extreme_high": 80,
+      "bb_period": 20,
+      "bb_mult": 2.0,
+      "pctb_low": 0.05,
+      "pctb_high": 0.95,
+      "pctb_extreme_low": -0.05,
+      "pctb_extreme_high": 1.05,
+      "ema_period": 20,
+      "deviation_entry": 1.5,
+      "deviation_strong": 2.5,
+      "rsi_weight": 0.4,
+      "bb_weight": 0.35,
+      "deviation_weight": 0.25,
+      "min_score": 0.5,
+      "strong_score": 0.8,
+      "cooldown_bars": 2
+    },
+    "huyin": {
+      "rsi_oversold": 28,
+      "rsi_overbought": 72,
+      "deviation_entry": 1.2,
+      "deviation_strong": 2.0,
+      "cooldown_bars": 3
+    },
+    "comex": {
+      "rsi_oversold": 32,
+      "rsi_overbought": 68,
+      "deviation_entry": 1.0,
+      "deviation_strong": 1.8,
+      "bb_period": 10,
+      "cooldown_bars": 2
+    }
   }
 }

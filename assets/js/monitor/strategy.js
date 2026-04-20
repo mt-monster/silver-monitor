@@ -1,6 +1,34 @@
 (function () {
   const Monitor = window.Monitor;
   let equityChart = null;
+  let currentStrategy = "momentum";
+
+  // 暴露给 HTML onclick
+  window.switchStrategy = function (name) {
+    currentStrategy = name;
+    document.querySelectorAll(".strategy-tab").forEach(function (t) {
+      t.classList.toggle("active", t.dataset.strategy === name);
+    });
+    // 策略说明面板
+    el("momentumExplain").style.display = name === "momentum" ? "" : "none";
+    el("reversalExplain").style.display = name === "reversal" ? "" : "none";
+    // 参数面板
+    el("momentumParams").style.display = name === "momentum" ? "" : "none";
+    el("reversalParams").style.display = name === "reversal" ? "" : "none";
+    // Grid Search 只对动量策略可用
+    el("gsPanel").style.display = name === "momentum" ? "" : "none";
+    // 标题
+    el("backtestLabel").textContent = name === "momentum"
+      ? "动量策略回测（EMA + Boll + RSI 融合信号）"
+      : "反转策略回测（RSI + Boll%B + EMA偏离 加权评分）";
+    // 清除结果
+    el("metricGrid").style.display = "none";
+    el("chartWrap").style.display = "none";
+    el("tradesWrap").style.display = "none";
+    el("strategyMeta").textContent = "";
+    showError("");
+    el("wfPanel").style.display = "none";
+  };
 
   function el(id) {
     return document.getElementById(id);
@@ -20,13 +48,33 @@
   function collectBody() {
     const rawSym = el("symbolSelect").value;
     const symbol = _ALIASES[rawSym] || rawSym;
-    return {
-      strategy: el("strategySelect").value,
+    var base = {
+      strategy: currentStrategy,
       symbol: symbol,
       mode: el("modeSelect").value,
       commission_rate: Number(el("commissionRate").value) / 100,
       slippage_pct: Number(el("slippagePct").value) / 100,
-      params: {
+    };
+    if (currentStrategy === "reversal") {
+      base.params = {
+        rsi_period: Number(el("rvRsiPeriod").value),
+        rsi_oversold: Number(el("rvRsiOversold").value),
+        rsi_overbought: Number(el("rvRsiOverbought").value),
+        rsi_extreme_low: Number(el("rvRsiExtremeLow").value),
+        rsi_extreme_high: Number(el("rvRsiExtremeHigh").value),
+        bb_period: Number(el("rvBbPeriod").value),
+        bb_mult: Number(el("rvBbMult").value),
+        pctb_low: Number(el("rvPctbLow").value),
+        pctb_high: Number(el("rvPctbHigh").value),
+        ema_period: Number(el("rvEmaPeriod").value),
+        deviation_entry: Number(el("rvDeviationEntry").value),
+        deviation_strong: Number(el("rvDeviationStrong").value),
+        min_score: Number(el("rvMinScore").value),
+        strong_score: Number(el("rvStrongScore").value),
+        cooldown_bars: Number(el("rvCooldownBars").value),
+      };
+    } else {
+      base.params = {
         short_p: Number(el("shortP").value),
         long_p: Number(el("longP").value),
         spread_entry: Number(el("spreadEntry").value),
@@ -36,8 +84,9 @@
         bb_mult: Number(el("bbMult").value),
         rsi_period: Number(el("rsiPeriod").value),
         cooldown_bars: Number(el("cooldownBars").value),
-      },
-    };
+      };
+    }
+    return base;
   }
 
   const _CAT_ORDER = {

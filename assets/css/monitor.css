@@ -175,6 +175,10 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .header-nav{font-size:12px;color:var(--blue);text-decoration:none;margin-right:10px}
 .header-nav:hover{text-decoration:underline}
 .strategy-panel{margin-bottom:16px}
+.strategy-tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border)}
+.strategy-tab{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;padding:10px 20px;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--text3);cursor:pointer;transition:all .15s}
+.strategy-tab:hover{color:var(--text2)}
+.strategy-tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
 .strategy-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px 16px;align-items:end;margin-bottom:12px}
 .strategy-form label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--text2)}
 .strategy-form input,.strategy-form select{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-family:var(--mono);font-size:12px}
@@ -257,6 +261,29 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .btn-back:hover{background:var(--bg3);border-color:var(--cyan)}
 .detail-title{font-size:16px;font-weight:700;color:var(--text)}
 .dash-card:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,.3)}
+
+/* Strategy Explain Panel */
+.strategy-explain .collapsed{display:none}
+.explain-section{margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.explain-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.explain-title{font-size:13px;font-weight:700;color:var(--cyan);margin-bottom:8px}
+.explain-text{font-size:12px;color:var(--text2);line-height:1.8;margin-bottom:8px}
+.explain-text strong{color:var(--text)}
+.formula-block{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px}
+.formula-label{font-size:10px;color:var(--text3);margin-bottom:6px}
+.formula{font-size:14px;color:var(--text);overflow-x:auto}
+.explain-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+.explain-table th{padding:6px 8px;text-align:left;color:var(--text3);font-weight:600;border-bottom:2px solid var(--border);background:var(--bg2)}
+.explain-table td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text2)}
+.explain-table .sig-buy{color:var(--red);font-weight:700}
+.explain-table .sig-strong-buy{color:#ff6b6b;font-weight:700}
+.explain-table .sig-sell{color:var(--green);font-weight:700}
+.explain-table .sig-strong-sell{color:#5bdb6f;font-weight:700}
+.explain-table .sig-neutral{color:var(--text3);font-weight:700}
+.explain-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0}
+.flow-step{background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px;color:var(--cyan);font-weight:600}
+.flow-step.final{background:rgba(88,166,255,.12);border-color:var(--blue);color:var(--blue)}
+.flow-arrow{color:var(--text3);font-size:14px}
 
 /* Responsive */
 @media(max-width:900px){
