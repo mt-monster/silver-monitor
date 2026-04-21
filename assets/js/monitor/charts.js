@@ -1,3 +1,7 @@
+/** 图表初始化与配置：实时走势、历史走势、金银币多品种图表工厂。
+ *
+ * 提供 Chart.js 默认配置、实时/历史图表初始化、ATR 计算、响应式调整。
+ */
 (function () {
   const Monitor = window.Monitor;
   const { app, constants, el } = Monitor;

@@ -1,26 +1,22 @@
-(function () {
+﻿(function () {
 
   const Monitor = window.Monitor;
 
   const { app, el } = Monitor;
 
-
-
   Monitor.signalLabels = {
 
-    strong_buy: "强多",
+    strong_buy: "寮哄",
 
-    buy: "做多",
+    buy: "鍋氬",
 
-    neutral: "观望",
+    neutral: "瑙傛湜",
 
-    sell: "做空",
+    sell: "鍋氱┖",
 
-    strong_sell: "强空",
+    strong_sell: "寮虹┖",
 
   };
-
-
 
   Monitor.momentum = {
 
@@ -40,9 +36,7 @@
   Monitor._cooldowns = {};
 
   /**
-   * 按时间窗口入队：同一窗口内覆写末条价格（取最新值），跨窗口时追加新 bar。
-   * windowMs 读取 Monitor.constants.BAR_WINDOW_MS（由 monitor.config.json frontend.bar_window_ms 设置），缺省 30000ms。
-   */
+   * 鎸夋椂闂寸獥鍙ｅ叆闃燂細鍚屼竴绐楀彛鍐呰鍐欐湯鏉′环鏍硷紙鍙栨渶鏂板€硷級锛岃法绐楀彛鏃惰拷鍔犳柊 bar銆?   * windowMs 璇诲彇 Monitor.constants.BAR_WINDOW_MS锛堢敱 monitor.config.json frontend.bar_window_ms 璁剧疆锛夛紝缂虹渷 30000ms銆?   */
   Monitor._pushByTimeWindow = function (arr, price, ts, cap) {
     const windowMs = (Monitor.constants && Monitor.constants.BAR_WINDOW_MS) || 30000;
     if (arr.length > 0 && ts - arr[arr.length - 1].t < windowMs) {
@@ -53,14 +47,14 @@
     }
   };
 
-  /** RSI 超买/超卖修正信号（与后端 _fuse_with_rsi 对齐） */
+  /** RSI 瓒呬拱/瓒呭崠淇淇″彿锛堜笌鍚庣 _fuse_with_rsi 瀵归綈锛?*/
   function _fuseWithRSI(sig, rsi) {
     if (sig === "buy" && rsi > 70) return "neutral";
     if (sig === "sell" && rsi < 30) return "neutral";
     return sig;
   }
 
-  /** BB 融合修正 EMA 动量信号（与后端 _fuse_with_bb 对齐） */
+  /** BB 铻嶅悎淇 EMA 鍔ㄩ噺淇″彿锛堜笌鍚庣 _fuse_with_bb 瀵归綈锛?*/
 
   function _fuseWithBB(baseSig, pctB, bwExpanding, buyKill, sellKill) {
 
@@ -96,9 +90,7 @@
 
   }
 
-
-
-  /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 */
+  /** EMA 鐭?闀?寮犲彛 + 鐭?EMA 鏂滅巼 + Bollinger 甯﹁瀺鍚?*/
 
   Monitor.calcMomentum = function (series, shortP, longP, thresholds) {
 
@@ -122,8 +114,6 @@
 
     const slopePct = prevS !== 0 ? ((lastS - prevS) / prevS) * 100 : 0;
 
-
-
     const th = thresholds || Monitor.getMomentumThresholds();
 
     const se = th.spreadEntry;
@@ -142,8 +132,6 @@
 
     const bbSellKill = th.bbSellKill != null ? th.bbSellKill : 0.7;
 
-
-
     let signal = "neutral";
 
     if (lastS > lastL && spreadPct > se && slopePct > sl) {
@@ -156,10 +144,7 @@
 
     }
 
-
-
-    // Bollinger 带融合
-
+    // Bollinger 甯﹁瀺鍚?
     let bb = null;
 
     if (bbP > 0 && vals.length >= bbP) {
@@ -191,8 +176,6 @@
 
     }
 
-
-
     // RSI fusion
     const rsiP = th.rsiPeriod || 0;
     let rsi = null;
@@ -223,8 +206,6 @@
 
   };
 
-
-
   Monitor.renderSignal = function (prefix, info, decimals) {
 
     const symbolByPrefix = {
@@ -235,8 +216,7 @@
       btc: "btc",
     };
 
-    // 更新 EMA 周期标签（始终更新，即使 info 为 null）
-    const symbol = symbolByPrefix[prefix];
+    // 鏇存柊 EMA 鍛ㄦ湡鏍囩锛堝缁堟洿鏂帮紝鍗充娇 info 涓?null锛?    const symbol = symbolByPrefix[prefix];
     if (symbol && Monitor.getMomentumPeriods) {
       const periods = Monitor.getMomentumPeriods(symbol);
       if (periods) {
@@ -253,7 +233,7 @@
         if (tagEl) {
           const current = tagEl.textContent;
           let suffix = "";
-          if (current.includes("（")) suffix = current.slice(current.indexOf("（"));
+          if (current.includes("锛?)) suffix = current.slice(current.indexOf("锛?));
           else if (current.includes("+Boll")) suffix = current.slice(current.indexOf("+Boll"));
           tagEl.textContent = `EMA${periods.shortP}/${periods.longP}${suffix}`;
         }
@@ -276,17 +256,13 @@
 
     const bar = findEl(prefix + "SigBar");
 
-
-
     if (!badge || !slopeEl || !emaFastEl || !emaSlowEl || !bar) return;
-
-
 
     if (!info) {
 
       badge.className = "signal-badge neutral";
 
-      badge.textContent = "等待";
+      badge.textContent = "绛夊緟";
 
       slopeEl.textContent = "--";
 
@@ -308,15 +284,13 @@
 
         const minPts = lp * 2;
 
-        noteEl.textContent = `需至少 ${minPts} 个有效价格点后计算`;
+        noteEl.textContent = `闇€鑷冲皯 ${minPts} 涓湁鏁堜环鏍肩偣鍚庤绠梎;
 
       }
 
       return;
 
     }
-
-
 
     badge.className = "signal-badge " + info.signal.replace("_", "-");
 
@@ -334,9 +308,9 @@
 
     bar.className = "signal-bar-inner " + (info.signal.includes("buy") ? "bull" : info.signal.includes("sell") ? "bear" : "flat");
 
-    if (pointsEl) pointsEl.textContent = "实时";
+    if (pointsEl) pointsEl.textContent = "瀹炴椂";
 
-    // BB 指标渲染
+    // BB 鎸囨爣娓叉煋
 
     const bollBEl = findEl(prefix + "BollB");
 
@@ -366,23 +340,21 @@
 
     }
 
-
-
     if (noteEl) {
 
-      let note = `动量差 ${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
+      let note = `鍔ㄩ噺宸?${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
 
       if (info.bb) {
 
         const b = info.bb.percentB;
 
-        if (info.bb.squeeze) note += " | Boll缩口";
+        if (info.bb.squeeze) note += " | Boll缂╁彛";
 
-        else if (b > 1.0) note += " | 超买";
+        else if (b > 1.0) note += " | 瓒呬拱";
 
-        else if (b < 0.0) note += " | 超卖";
+        else if (b < 0.0) note += " | 瓒呭崠";
 
-        else if (info.bb.bwExpanding) note += " | 带宽扩张";
+        else if (info.bb.bwExpanding) note += " | 甯﹀鎵╁紶";
 
       }
 
@@ -390,7 +362,7 @@
 
     }
 
-    // RSI 指标渲染
+    // RSI 鎸囨爣娓叉煋
     const rsiEl = findEl(prefix + "RSI");
     if (rsiEl && info.rsi != null) {
       const r = info.rsi;
@@ -402,16 +374,10 @@
 
   };
 
-
-
   Monitor.refreshMomentumLabels = function () {
 
-    // 标签已由 renderSignal 根据品种特定周期动态更新，此处无需全局统一刷新。
-    // 保留该函数以防止 core.js 调用时报错。
-
+    // 鏍囩宸茬敱 renderSignal 鏍规嵁鍝佺鐗瑰畾鍛ㄦ湡鍔ㄦ€佹洿鏂帮紝姝ゅ鏃犻渶鍏ㄥ眬缁熶竴鍒锋柊銆?    // 淇濈暀璇ュ嚱鏁颁互闃叉 core.js 璋冪敤鏃舵姤閿欍€?
   };
-
-
 
   Monitor.playSignalTone = function (signal) {
 
@@ -421,8 +387,6 @@
 
       if (!enabled || !["strong_buy", "strong_sell"].includes(signal)) return;
 
-
-
       const Ctx = window.AudioContext || window.webkitAudioContext;
 
       if (!Ctx) return;
@@ -430,8 +394,6 @@
       app.audioCtx = app.audioCtx || new Ctx();
 
       if (app.audioCtx.state === "suspended") app.audioCtx.resume();
-
-
 
       const ctx = app.audioCtx;
 
@@ -461,22 +423,22 @@
 
   };
 
-
-
   Monitor.updateMomentumSignals = function (data) {
 
     const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+    const priceBuffers = data.priceBuffers || {};
+    const rtBuffers = data.realtimeBacktestBuffers || {};
 
     const hu = data.huyin;
 
     const co = data.comex;
 
-    const huSeries = app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    // 浼樺厛浣跨敤鍚庣 realtimeBacktestBuffers锛?绉掗噰鏍凤級锛岀‘淇濆墠鍚庣浣跨敤鍚屼竴浠锋牸搴忓垪
+    const _rtSeries = (buf) => (buf && buf.length >= 2) ? buf.map(p => ({ x: p.t, y: p.y })) : null;
+    const huSeries = _rtSeries(rtBuffers.ag0) || app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const coSeries = _rtSeries(rtBuffers.xag) || app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
 
-    const coSeries = app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
-
-    // 使用品种特定的周期和阈值参数
-    const huP = Monitor.getMomentumPeriods("huyin");
+    // 浣跨敤鍝佺鐗瑰畾鐨勫懆鏈熷拰闃堝€煎弬鏁?    const huP = Monitor.getMomentumPeriods("huyin");
 
     const coP = Monitor.getMomentumPeriods("comex");
 
@@ -484,8 +446,6 @@
     const huSig = _valid(backendSignals.ag0) ? backendSignals.ag0 : Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"));
 
     const coSig = _valid(backendSignals.xag) ? backendSignals.xag : Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"));
-
-
 
     if (huSig && Monitor.momentum.hu.last !== huSig.signal) {
 
@@ -503,30 +463,26 @@
 
     }
 
-
-
     Monitor.renderSignal("hu", huSig, 1);
 
     Monitor.renderSignal("co", coSig, 3);
 
   };
 
-
-
   Monitor.updateGoldMomentumSignals = function (data) {
 
     const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+    const rtBuffers = data.realtimeBacktestBuffers || {};
 
     const au = data.hujin;
 
     const cg = data.comexGold;
 
-    const auSeries = (app.goldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const _rtSeries = (buf) => (buf && buf.length >= 2) ? buf.map(p => ({ x: p.t, y: p.y })) : null;
+    const auSeries = _rtSeries(rtBuffers.au0) || (app.goldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const cgSeries = _rtSeries(rtBuffers.xau) || (app.comexGoldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
 
-    const cgSeries = (app.comexGoldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
-
-    // 使用品种特定的周期和阈值参数
-    const auP = Monitor.getMomentumPeriods("hujin");
+    // 浣跨敤鍝佺鐗瑰畾鐨勫懆鏈熷拰闃堝€煎弬鏁?    const auP = Monitor.getMomentumPeriods("hujin");
 
     const cgP = Monitor.getMomentumPeriods("comex_gold");
 
@@ -534,8 +490,6 @@
     const auSig = _valid2(backendSignals.au0) ? backendSignals.au0 : Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"));
 
     const cgSig = _valid2(backendSignals.xau) ? backendSignals.xau : Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"));
-
-
 
     if (auSig && Monitor.momentum.au.last !== auSig.signal) {
 
@@ -553,8 +507,6 @@
 
     }
 
-
-
     Monitor.renderSignal("au", auSig, 2);
 
     Monitor.renderSignal("cg", cgSig, 2);
@@ -563,8 +515,10 @@
 
   Monitor.updateCryptoMomentumSignals = function (data) {
     const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
+    const rtBuffers = data.realtimeBacktestBuffers || {};
     const btc = data.btc;
-    const btcSeries = (app.btcLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const _rtSeries = (buf) => (buf && buf.length >= 2) ? buf.map(p => ({ x: p.t, y: p.y })) : null;
+    const btcSeries = _rtSeries(rtBuffers.btc) || (app.btcLivePoints || []).map(p => ({ x: p.t, y: p.y }));
     const btcP = Monitor.getMomentumPeriods("btc");
     const _valid3 = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
     const btcSig = _valid3(backendSignals.btc) ? backendSignals.btc : Monitor.calcMomentum(btcSeries, btcP.shortP, btcP.longP, Monitor.getMomentumThresholds("btc"));
@@ -576,7 +530,6 @@
 
     Monitor.renderSignal("btc", btcSig, 2);
   };
-
 
   Monitor.refreshMomentumLabels();
 

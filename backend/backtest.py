@@ -133,6 +133,23 @@ def load_realtime_bars(symbol: str, lookback_minutes: int = 5) -> tuple[list[dic
 
 
 def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None) -> dict[str, Any]:
+    """动量策略做多回测引擎。
+
+    逻辑：
+    1. 逐 bar 计算 EMA 短/长、BB、RSI
+    2. 当信号为 buy/strong_buy 且无持仓时开仓
+    3. 当信号为 sell/strong_sell 或持仓时平仓
+    4. cooldown_bars 内禁止反向开仓
+    5. 最后强制平仓
+
+    Args:
+        bars: 价格序列，每个元素 {"t": 时间戳, "y": 价格}
+        params: 动量策略参数
+        config: 回测配置（手续费、滑点等）
+
+    Returns:
+        包含 equity（权益曲线）、trades（成交记录）、metrics（绩效指标）的字典
+    """
     cfg = config or BacktestConfig()
     cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
     min_len = params.long_p + 2
@@ -233,6 +250,22 @@ def _compute_metrics(
     trades: list[dict[str, Any]],
     bars: list[dict],
 ) -> dict[str, Any]:
+    """从权益曲线和成交记录计算回测绩效指标。
+
+    计算指标：
+    - 总收益率、最大回撤
+    - 胜率、盈亏比、每笔平均收益
+    - 平均持仓 bars、原始波动率
+    - 年化收益、年化夏普（仅回测周期 >= 1 周时计算）
+
+    Args:
+        equity_curve: 权益曲线，每个元素 {"t": 时间戳, "equity": 权益值, "price": 价格}
+        trades: 成交记录，每个元素 {"t": 时间戳, "price": 价格, "action": "buy"|"sell"|"short"|"cover"}
+        bars: 原始 bar 序列
+
+    Returns:
+        绩效指标字典
+    """
     if not equity_curve:
         return {}
 
@@ -605,7 +638,23 @@ def run_walk_forward(
 def run_reversal_long_only_backtest(
     bars: list[dict], params: ReversalParams, config: BacktestConfig | None = None,
 ) -> dict[str, Any]:
-    """反转策略 Long-Only 回测。"""
+    """反转策略做多回测引擎。
+
+    逻辑：
+    1. 逐 bar 计算 RSI、BB、EMA 偏离度
+    2. 综合评分 > min_score 时开仓（做多）
+    3. 评分回落或反向信号时平仓
+    4. cooldown_bars 内禁止反向开仓
+    5. 最后强制平仓
+
+    Args:
+        bars: 价格序列，每个元素 {"t": 时间戳, "y": 价格}
+        params: 反转策略参数
+        config: 回测配置（手续费、滑点等）
+
+    Returns:
+        包含 equity、trades、metrics 的字典
+    """
     cfg = config or BacktestConfig()
     cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
     min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2

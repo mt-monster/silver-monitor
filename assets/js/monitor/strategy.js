@@ -1,3 +1,7 @@
+/** 策略回测页逻辑：动量/反转策略回测、Walk-Forward、Grid Search。
+ *
+ * 负责：参数收集、品种加载、回测执行、结果渲染（Chart.js 权益曲线 + 绩效卡片 + 成交表）。
+ */
 (function () {
   const Monitor = window.Monitor;
   let equityChart = null;

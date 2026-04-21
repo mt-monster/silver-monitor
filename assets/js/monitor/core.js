@@ -1,3 +1,11 @@
+/** 核心配置加载与全局初始化：Monitor 命名空间、SSE 管理、API 基址、参数解析。
+ *
+ * 负责：
+ * - 从 monitor.config.json 加载运行时配置
+ * - 构建 momentumThresholds / momentumPeriods / reversalParams
+ * - SSE 连接管理与心跳
+ * - 全局常量定义
+ */
 (function () {
   const Monitor = (window.Monitor = window.Monitor || {});
   const defaultConfig = {

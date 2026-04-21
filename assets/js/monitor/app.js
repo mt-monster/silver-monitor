@@ -87,6 +87,7 @@
       comexGold: payload.comexGold || {},
       btc: payload.btc || {},
       signals: payload.signals || {},
+      reversalSignals: payload.reversalSignals || {},
       activeSources: ["SSE"],
     };
 

@@ -43,6 +43,28 @@
 
 - **`503`**：`{ "ok": false, "error": "akshare_not_available" | "no_history" }`（未安装 AkShare 或拉取历史失败）
 
+## 参数体系：History vs Realtime
+
+系统维护两套参数，分别用于不同场景：
+
+| 场景 | 参数段 | 典型 EMA 周期 | spread_entry | 特点 |
+|------|--------|--------------|--------------|------|
+| **历史回测** | `momentum.default` / 品种特定 | 3~8 / 10~21 | 0.05%~0.15% | 基于 60min/日线，捕捉中等周期趋势 |
+| **实时监控** | `momentum.realtime` | 3 / 5 | 0.02%~0.025% | 基于 **1s bar**，捕捉日内微趋势 |
+
+**重要区别**：
+- 回测页（`strategy.html`）默认使用 **history 参数**（`data_source` 未传或传 `history`）
+- 实时监控面板使用 **realtime 参数**
+- 回测页如需使用 realtime 参数，需在请求体中传入 `"data_source": "realtime"`
+
+**为什么 realtime 使用 1 秒 bar？**
+
+用户要求信号在 **5~20 秒** 内响应。1 秒/bar + EMA3/5 意味着：
+- 首条信号仅需 **7 秒**（7 根 × 1s）
+- EMA3 覆盖 3 秒、EMA5 覆盖 5 秒——足够捕捉日内短趋势
+- `spread_entry=0.02%`（银价 $30 时 $0.006）约需 3~6 秒同向波动才触发，过滤纯噪声
+- 信号每 1 秒重新计算一次，响应极快
+
 ## 历史加载逻辑
 
 见 [backend/backtest.py](../backend/backtest.py) 中 `load_history`：优先使用 `state.*_cache["data"]["history"]`（慢轮询已写入且不少于 50 根），否则调用对应 `fetch_*_history()`。

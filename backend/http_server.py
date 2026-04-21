@@ -129,6 +129,11 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(exc)}).encode())
 
     def _handle_backtest(self):
+        """POST /api/backtest — 执行策略回测。
+
+        请求体字段：strategy, symbol, mode, params(可选), data_source(可选), lookback_minutes(可选)
+        返回：权益曲线、成交记录、绩效指标。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length > 0 else {}
@@ -219,6 +224,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
 
     def _handle_grid_search(self):
+        """POST /api/backtest/grid-search — 参数网格搜索。
+        遍历参数组合，返回每组参数的绩效摘要。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length > 0 else {}
@@ -248,6 +256,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
 
     def _handle_walk_forward(self):
+        """POST /api/backtest/walk-forward — Walk-Forward 分析。
+        分段回测：前段优化参数，后段验证，避免过拟合。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length > 0 else {}
@@ -330,6 +341,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         }
 
     def _handle_research_monte_carlo(self):
+        """POST /api/research/monte-carlo — 蒙特卡洛模拟。
+        基于历史收益分布生成随机路径，评估策略稳健性。
+        """
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length)) if length > 0 else {}
@@ -401,6 +415,7 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
     # ── Admin handlers ───────────────────────────────────────────────
 
     def _handle_admin_clear_cache(self):
+        """POST /api/admin/clear-cache — 清理所有缓存和信号状态。"""
         try:
             with state.cache_lock:
                 for c in (state.silver_cache, state.comex_silver_cache,
@@ -411,6 +426,7 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 state.instrument_caches.clear()
                 state.instrument_price_buffers.clear()
                 state.instrument_signals.clear()
+                state.instrument_reversal_signals.clear()
             with state.alerts_lock:
                 state.silver_tick_ring.clear()
                 state.comex_silver_tick_ring.clear()
@@ -659,16 +675,30 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         return state.btc_cache.get("data")
 
     def _api_all(self):
+        """GET /api/all — 聚合所有品种的实时数据、信号和价差。
+
+        返回：行情快照、动量信号、反转信号、价格缓冲、价差、波动率等。
+        """
         data = dict(state.combined_cache.get("data") or {})
         with state.cache_lock:
             signals_snap = dict(state.instrument_signals)
+            rv_signals_snap = dict(state.instrument_reversal_signals)
+            price_bufs = {k: v[-60:] for k, v in state.instrument_price_buffers.items() if len(v) >= 2}
+            rt_bufs = {k: v[-60:] for k, v in state.realtime_backtest_buffers.items() if len(v) >= 2}
         signals = {}
+        rv_signals = {}
         for inst_id in ("ag0", "xag", "au0", "xau", "btc"):
             sig = signals_snap.get(inst_id)
             if sig:
                 signals[inst_id] = sig
+            rv_sig = rv_signals_snap.get(inst_id)
+            if rv_sig:
+                rv_signals[inst_id] = rv_sig
         if signals:
             data["signals"] = signals
+        data["reversalSignals"] = rv_signals
+        data["priceBuffers"] = price_bufs
+        data["realtimeBacktestBuffers"] = rt_bufs
         return data
 
     def _api_instruments_registry(self):

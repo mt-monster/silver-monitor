@@ -1,6 +1,6 @@
 # 动量策略：计算说明、使用方法与优化空间
 
-> 最后更新：2026-04-21 — 新增反转策略；指标函数拆分至 indicators.js；改为时间窗口采样
+> 最后更新：2026-04-21 — 校准 realtime 参数至经济学合理范围；新增反转策略；指标函数拆分至 indicators.js；改为时间窗口采样
 
 ---
 
@@ -113,7 +113,9 @@ minLen = long_p + 2
 | **触发** | `fetchData()` 每 1s 轮询 `/api/all` 后调用 |
 | **数据** | 实时 tick 序列（去重后追加），上限 180 点 |
 | **品种** | 沪银(hu) / COMEX银(co) / 沪金(au) / COMEX金(cg) |
-| **参数来源** | `monitor.config.json` → `core.js` → `Monitor.momentumThresholds` / `momentumPeriods` |
+| **参数来源** | `monitor.config.json` 的 `momentum.realtime` 段 → `core.js` 加载 → 前后端统一使用 |
+| **Bar 周期** | `frontend.bar_window_ms` = **1000ms（1 秒/bar）** |
+| **最小样本** | `long_p + 2`；realtime `long_p=5` → 约 **7 秒**（7 根 × 1s）后出首条信号 |
 | **特殊功能** | 信号变化时对 `strong_buy`/`strong_sell` 播放提示音 |
 
 **采样规则（时间窗口 Bar）**：仅在 `price > 0 && !closed && !error` 时处理。每个 Bar 窗口时长由 `frontend.bar_window_ms`（默认 10000ms = 10 秒）控制：同一窗口内新 tick 覆盖当前 Bar 末值（原地更新）；窗口切换时追加新 Bar。这替代了原来的纯价格去重，使周期参数与实际时间对应而非依赖价格变化频率。
@@ -173,11 +175,28 @@ minLen = long_p + 2
 |---|---|---|---|---|---|---|---|---|
 | **default** | 5 | 20 | 0.10 | 0.35 | 0.02 | 120 | 0 | 20 |
 | **huyin** (沪银) | 8 | 21 | 0.15 | 0.50 | 0.03 | 100 | 3 | 20 |
-| **comex** (COMEX银) | 3 | 10 | 0.03 | 0.12 | 0.008 | 300 | 2 | 10 |
+| **comex** (COMEX银) | 3 | 10 | 0.05 | 0.18 | 0.010 | 300 | 2 | 10 |
 | **hujin** (沪金) | 8 | 21 | 0.12 | 0.40 | 0.025 | 100 | 3 | 20 |
 | **comex_gold** (COMEX金) | 3 | 10 | 0.03 | 0.12 | 0.008 | 300 | 2 | 10 |
 
-**参数优先级**（回测）：请求体 `params` > 配置文件品种特定 > 配置文件 `default`。
+### Realtime 参数（实时监控面板专用）
+
+实时监控面板使用 `momentum.realtime` 段参数，设计目标是在 30 秒/bar 的频率下捕捉**可识别的短期趋势**，而非追逐噪声。
+
+| 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period | rsi_period |
+|---|---|---|---|---|---|---|---|---|---|
+| **realtime default** | 3 | 5 | 0.02 | 0.06 | 0.01 | 200 | 2 | 5 | 5 |
+| **realtime comex** | 3 | 5 | 0.02 | 0.06 | 0.01 | 200 | 2 | 5 | 5 |
+| **realtime huyin** | 3 | 5 | 0.025 | 0.075 | 0.012 | 200 | 2 | 5 | 5 |
+
+**参数校准原则**：
+- `bar_window_ms = 1000ms`（1 秒/bar）：信号可在 **5~8 秒**内响应
+- `EMA3/5`：1s × 3~5 = 3~5 秒数据窗口，捕捉短期趋势而非噪声
+- `spread_entry = 0.02%`：银价 $30 时，0.02% = $0.006，约需 3~6 秒同向波动才触发
+- `RSI(5)`：1s × 5 = 5 秒窗口，反映超短期动量
+- `BB(5)`：1s × 5 = 5 秒布林带，标准差倍数 2.0
+
+**参数优先级**：请求体 `params` > 配置文件品种特定 > 配置文件 `default`；**实时监控额外叠加 `realtime` 段覆盖**。
 
 ### 参数含义速查
 
@@ -261,9 +280,9 @@ minLen = long_p + 2
 minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 ```
 
-以 COMEX 银默认配置（`rsi_period=14, bb_period=10, ema_period=10`）为例：
-`minLen = max(15, 10, 10) + 2 = 17`
-以 10s/bar 计算：约需 **170 秒**数据后开始输出信号。
+以 COMEX 银 realtime 配置（`rsi_period=14, bb_period=10, ema_period=20`）为例：
+`minLen = max(15, 10, 20) + 2 = 22`
+以 30s/bar 计算：约需 **11 分钟**数据后开始输出信号。
 
 ### 7.3 参数配置
 
@@ -271,26 +290,31 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 "reversal": {
   "default": {
     "rsi_period": 14,
-    "bb_period": 20,
-    "ema_period": 20,
     "rsi_oversold": 30,
     "rsi_overbought": 70,
-    "deviation_entry": 0.5,
-    "deviation_strong": 1.2,
+    "rsi_extreme_low": 20,
+    "rsi_extreme_high": 80,
+    "bb_period": 20,
     "bb_mult": 2.0,
+    "ema_period": 20,
+    "deviation_entry": 0.5,
+    "deviation_strong": 1.5,
+    "min_score": 0.5,
+    "strong_score": 0.8,
     "cooldown_bars": 3
   },
-  "comex": {
-    "rsi_oversold": 32,
-    "rsi_overbought": 68,
-    "deviation_entry": 1.0,
-    "deviation_strong": 1.8,
-    "bb_period": 10,
-    "ema_period": 10,
-    "cooldown_bars": 2
+  "realtime": {
+    "default": { ... },
+    "comex": { ... },
+    "huyin": { ... }
   }
 }
 ```
+
+**Realtime 反转参数校准**：
+- `deviation_entry ≥ 0.3%`：确保偏离度有统计意义，白银日内波动 0.5%~3%
+- `rsi_oversold=30 / overbought=70`：标准阈值，避免 42/58 将正常波动误判为超买超卖
+- `min_score=0.5 / strong_score=0.8`：提高门槛，要求多因子确认才发出信号
 
 ---
 

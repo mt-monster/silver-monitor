@@ -62,6 +62,9 @@ class AppState:
     # 预计算的动量信号：instrument_id → {"signal": str, "strength": float, ...} | None
     instrument_signals: dict = field(default_factory=dict)
 
+    # 预计算的反转信号：instrument_id → {"signal": str, "score": float, "rsi": float, ...} | None
+    instrument_reversal_signals: dict = field(default_factory=dict)
+
     # SSE 客户端队列集合：set[queue.SimpleQueue]
     sse_queues: set = field(default_factory=set)
     sse_lock: threading.Lock = field(default_factory=threading.Lock)

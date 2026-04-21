@@ -115,15 +115,80 @@ def _momentum_params_for(inst_id: str):
 
 
 def _recompute_signals(inst_ids: list[str]):
-    """重算指定品种的动量信号，存入 state.instrument_signals。"""
+    """重算指定品种的动量信号，存入 state.instrument_signals。
+    使用 realtime_backtest_buffers（1秒采样）以与回测口径保持一致。"""
     with state.cache_lock:
         for iid in inst_ids:
-            buf = state.instrument_price_buffers.get(iid, [])
+            rt_buf = state.realtime_backtest_buffers.get(iid, [])
+            buf = [p["y"] for p in rt_buf]
             params = _momentum_params_for(iid)
             if len(buf) >= params.long_p + 2:
                 state.instrument_signals[iid] = calc_momentum(buf, params)
             else:
                 state.instrument_signals[iid] = None
+
+
+def _reversal_params_for(inst_id: str):
+    """根据品种 ID 从 RUNTIME_CONFIG 构建反转参数（轻量版）。"""
+    from backend.strategies.reversal import ReversalParams
+    config = RUNTIME_CONFIG.get("reversal") or {}
+    defaults = config.get("default") if isinstance(config.get("default"), dict) else config
+    resolved = _SYMBOL_ALIASES.get(inst_id, inst_id)
+    sym_cfg = config.get(resolved, {}) if isinstance(config.get(resolved), dict) else {}
+
+    # 实时数据专用参数覆盖
+    rt_config = {}
+    rt = config.get("realtime") if isinstance(config.get("realtime"), dict) else {}
+    if isinstance(rt.get("default"), dict):
+        rt_config = rt["default"]
+    if resolved and resolved in rt and isinstance(rt[resolved], dict):
+        rt_config = {**rt_config, **rt[resolved]}
+
+    m = {**defaults, **sym_cfg, **rt_config}
+    return ReversalParams(
+        rsi_period=int(m.get("rsi_period", 14)),
+        rsi_oversold=float(m.get("rsi_oversold", 30.0)),
+        rsi_overbought=float(m.get("rsi_overbought", 70.0)),
+        rsi_extreme_low=float(m.get("rsi_extreme_low", 20.0)),
+        rsi_extreme_high=float(m.get("rsi_extreme_high", 80.0)),
+        bb_period=int(m.get("bb_period", 20)),
+        bb_mult=float(m.get("bb_mult", 2.0)),
+        pctb_low=float(m.get("pctb_low", 0.05)),
+        pctb_high=float(m.get("pctb_high", 0.95)),
+        pctb_extreme_low=float(m.get("pctb_extreme_low", -0.05)),
+        pctb_extreme_high=float(m.get("pctb_extreme_high", 1.05)),
+        ema_period=int(m.get("ema_period", 20)),
+        deviation_entry=float(m.get("deviation_entry", 1.5)),
+        deviation_strong=float(m.get("deviation_strong", 2.5)),
+        rsi_weight=float(m.get("rsi_weight", 0.4)),
+        bb_weight=float(m.get("bb_weight", 0.35)),
+        deviation_weight=float(m.get("deviation_weight", 0.25)),
+        min_score=float(m.get("min_score", 0.5)),
+        strong_score=float(m.get("strong_score", 0.8)),
+        cooldown_bars=int(m.get("cooldown_bars", 2)),
+    )
+
+
+def _recompute_reversal_signals(inst_ids: list[str]):
+    """重算指定品种的反转信号，存入 state.instrument_reversal_signals。
+    使用 realtime_backtest_buffers（1秒采样）而非 instrument_price_buffers（30秒bar），
+    使反转信号能在秒级响应，与回测的高频数据口径一致。
+    """
+    from backend.strategies.reversal import calc_reversal
+    with state.cache_lock:
+        for iid in inst_ids:
+            rt_buf = state.realtime_backtest_buffers.get(iid, [])
+            buf = [p["y"] for p in rt_buf]
+            params = _reversal_params_for(iid)
+            min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
+            if len(buf) >= min_len:
+                try:
+                    state.instrument_reversal_signals[iid] = calc_reversal(buf, params)
+                except Exception as e:
+                    log.error(f"[_recompute_reversal_signals] {iid} error: {e}")
+                    state.instrument_reversal_signals[iid] = None
+            else:
+                state.instrument_reversal_signals[iid] = None
 
 
 def _notify_sse(event: str, payload: dict):
@@ -155,6 +220,7 @@ class FastDataPoller(threading.Thread):
                 hu_status, hu_desc = get_trading_status("huyin")
                 co_status, co_desc = get_trading_status("comex")
 
+                # ── 沪银 (AG0) ──
                 if hu_status == "open":
                     em = _fetch_by_priority("ag0")
                 else:
@@ -228,6 +294,7 @@ class FastDataPoller(threading.Thread):
                         append_huyin_research_sample(em["timestamp"], em["price"])
                         check_tick_jump("hu", em["price"], em.get("source", "Sina-AG0"))
 
+                # ── COMEX 银 (XAG) ──
                 if co_status == "open":
                     co_fast = _fetch_by_priority("xag")
                 else:
@@ -300,6 +367,7 @@ class FastDataPoller(threading.Thread):
                             state.comex_silver_cache["ts"] = time.time()
                             log.info(f"[COMEX/fallback] price={co['price']} from history")
 
+                # ── 沪金 (AU0) ──
                 if hu_status == "open":
                     au = _fetch_by_priority("au0")
                 else:
@@ -363,6 +431,7 @@ class FastDataPoller(threading.Thread):
                             state.gold_cache["ts"] = time.time()
                         check_tick_jump("hujin", au["price"], au.get("source", "Sina-AU0"))
 
+                # ── COMEX 金 (XAU) ──
                 if co_status == "open":
                     co_gold = _fetch_by_priority("xau")
                 else:
@@ -452,6 +521,7 @@ class FastDataPoller(threading.Thread):
 
                 _buffer_precious_prices()
                 _recompute_signals(["ag0", "xag", "au0", "xau", "btc"])
+                _recompute_reversal_signals(["ag0", "xag", "au0", "xau", "btc"])
                 rebuild_all_cache()
                 state.data_version += 1
                 _notify_sse("data", _build_sse_snapshot())
@@ -591,6 +661,7 @@ class CommodityPoller(threading.Thread):
                             state.instrument_price_buffers[inst.id] = _buf
                 updated_ids = [inst.id for inst in instruments]
                 _recompute_signals(updated_ids)
+                _recompute_reversal_signals(updated_ids)
                 state.data_version += 1
             except Exception as exc:
                 log.error(f"CommodityPoller error: {exc}")
@@ -616,13 +687,27 @@ def _build_sse_snapshot() -> dict:
             "source": d.get("source"),
         }
 
-    # 全品种信号
+    # 全品种信号（包含动量信号与反转信号）
     sigs = {}
+    rv_sigs = {}
     with state.cache_lock:
         for iid, sig in state.instrument_signals.items():
             if sig:
                 sigs[iid] = sig
+        for iid, rsig in state.instrument_reversal_signals.items():
+            if rsig:
+                rv_sigs[iid] = rsig
     snapshot["signals"] = sigs
+    snapshot["reversalSignals"] = rv_sigs
+
+    # 价格序列（供前端与后端使用同一输入，消除 RSI 不一致）
+    with state.cache_lock:
+        snapshot["priceBuffers"] = {
+            iid: buf[-60:] for iid, buf in state.instrument_price_buffers.items() if len(buf) >= 2
+        }
+        snapshot["realtimeBacktestBuffers"] = {
+            iid: buf[-60:] for iid, buf in state.realtime_backtest_buffers.items() if len(buf) >= 2
+        }
     return snapshot
 
 

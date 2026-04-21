@@ -191,14 +191,23 @@
   };
 
   Monitor.updateReversalSignals = function (data) {
-    const huSeries = app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
-    const coSeries = app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    // 后端可能通过 /api/all 返回或 SSE 推送 precomputed reversal signals
+    const backendRv = data.reversalSignals || data.reversal_signals || Monitor.instrumentReversalSignals || {};
+    const rtBuffers = data.realtimeBacktestBuffers || {};
+
+    // fallback 时也优先使用后端 realtimeBacktestBuffers（1秒采样），确保前后端使用同一序列
+    const _rtSeries = (buf) => (buf && buf.length >= 2) ? buf.map(p => ({ x: p.t, y: p.y })) : null;
+    const huSeries = _rtSeries(rtBuffers.ag0) || app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const coSeries = _rtSeries(rtBuffers.xag) || app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
 
     const huParams = Monitor.getReversalParams("huyin");
     const coParams = Monitor.getReversalParams("comex");
 
-    const huSig = Monitor.calcReversal(huSeries, huParams);
-    const coSig = Monitor.calcReversal(coSeries, coParams);
+    // 有效性检查：后端信号需包含至少 signal 或 rsi 等字段
+    const _valid = s => s && (s.signal != null || s.score != null || s.rsi != null);
+
+    const huSig = _valid(backendRv.ag0) ? backendRv.ag0 : Monitor.calcReversal(huSeries, huParams);
+    const coSig = _valid(backendRv.xag) ? backendRv.xag : Monitor.calcReversal(coSeries, coParams);
 
     if (huSig && Monitor.reversal.hu.last !== huSig.signal) {
       Monitor.playSignalTone(huSig.signal);
