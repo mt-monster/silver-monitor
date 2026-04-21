@@ -125,6 +125,7 @@
 
     if (tab === "gold") Monitor.initializeGoldCharts();
     if (tab === "crypto") Monitor.initializeCryptoCharts();
+    if (tab === "silver" && Monitor.initBacktestCard) Monitor.initBacktestCard();
     app.activeTab = tab;
 
     var dashEl = document.getElementById("dashboardTab");

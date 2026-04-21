@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from itertools import product
 from typing import Any, Callable
@@ -33,6 +34,17 @@ _HISTORY_FETCHERS: dict[str, tuple[str, Callable[[], list | None], Any]] = {
     "comex": ("1d", fetch_comex_history, state.comex_silver_cache),
     "hujin": ("60m", fetch_hujin_history, state.gold_cache),
     "comex_gold": ("1d", fetch_comex_gold_history, state.comex_gold_cache),
+}
+
+# 品种 key → instrument_id 映射（用于 realtime buffer 查找）
+_SYMBOL_TO_INST_ID = {
+    "huyin": "ag0",
+    "comex": "xag",
+    "comex银主连": "xag",
+    "hujin": "au0",
+    "comex_gold": "xau",
+    "comex黄金主连": "xau",
+    "btc": "btc",
 }
 
 
@@ -86,6 +98,38 @@ def load_history(symbol: str) -> tuple[list[dict], str, str | None]:
         return [], interval, "no_history"
     bars = normalize_bars(raw)
     return (bars, interval, None) if bars else ([], interval, "no_history")
+
+
+def load_realtime_bars(symbol: str, lookback_minutes: int = 5) -> tuple[list[dict], str, str | None]:
+    """
+    从 realtime_backtest_buffers 加载最近 N 分钟的高频价格点，用于短周期回测。
+    返回 (bars, interval_label, error_code)。
+    error_code: None 成功；unknown_symbol；no_history
+    """
+    key = symbol.lower().strip()
+    inst_id = _SYMBOL_TO_INST_ID.get(key)
+    if inst_id is None:
+        # 尝试注册表查找
+        inst = REGISTRY.get(key)
+        if inst is None:
+            return [], "", "unknown_symbol"
+        inst_id = inst.id
+
+    with state.cache_lock:
+        rt_buf = state.realtime_backtest_buffers.get(inst_id, [])
+
+    if not rt_buf:
+        return [], "1s", "no_history"
+
+    # 计算截断时间戳
+    cutoff_ms = int(time.time() * 1000) - lookback_minutes * 60 * 1000
+    bars = [b for b in rt_buf if b["t"] >= cutoff_ms]
+
+    if len(bars) < 30:
+        # 数据不足，返回全部可用数据并标记
+        return normalize_bars(rt_buf), "1s", "no_history"
+
+    return normalize_bars(bars), "1s", None
 
 
 def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None) -> dict[str, Any]:
@@ -167,6 +211,23 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
     return {"equity": equity_curve, "trades": trades, "metrics": metrics}
 
 
+def _raw_volatility(equity_curve: list[dict[str, Any]]) -> float | None:
+    """计算权益曲线的原始波动率（逐期收益率标准差，不年化）。"""
+    if len(equity_curve) < 2:
+        return None
+    rets: list[float] = []
+    for i in range(1, len(equity_curve)):
+        prev = equity_curve[i - 1]["equity"]
+        curr = equity_curve[i]["equity"]
+        if prev > 0:
+            rets.append((curr - prev) / prev)
+    if not rets:
+        return None
+    mean = sum(rets) / len(rets)
+    variance = sum((r - mean) ** 2 for r in rets) / len(rets)
+    return (variance ** 0.5) * 100
+
+
 def _compute_metrics(
     equity_curve: list[dict[str, Any]],
     trades: list[dict[str, Any]],
@@ -191,28 +252,73 @@ def _compute_metrics(
     last_side: str = ""
     completed = 0
     wins = 0
+    total_profit = 0.0
+    total_loss = 0.0
+    trade_returns: list[float] = []
+    holding_periods_ms: list[int] = []
+    entry_t: int | None = None
+
     for tr in trades:
         if tr["action"] in ("buy", "short"):
             last_entry = float(tr["price"])
             last_side = tr["action"]
-        elif tr["action"] in ("sell", "cover") and last_entry is not None:
+            entry_t = int(tr["t"])
+        elif tr["action"] in ("sell", "cover") and last_entry is not None and entry_t is not None:
             completed += 1
-            if last_side == "buy" and float(tr["price"]) > last_entry:
-                wins += 1
-            elif last_side == "short" and float(tr["price"]) < last_entry:
-                wins += 1
+            exit_price = float(tr["price"])
+            if last_side == "buy":
+                ret = (exit_price - last_entry) / last_entry * 100
+                trade_returns.append(ret)
+                if ret > 0:
+                    wins += 1
+                    total_profit += ret
+                else:
+                    total_loss += abs(ret)
+            elif last_side == "short":
+                ret = (last_entry - exit_price) / last_entry * 100
+                trade_returns.append(ret)
+                if ret > 0:
+                    wins += 1
+                    total_profit += ret
+                else:
+                    total_loss += abs(ret)
+            holding_periods_ms.append(int(tr["t"]) - entry_t)
             last_entry = None
             last_side = ""
+            entry_t = None
+
+    if total_loss > 1e-12:
+        profit_factor = round(total_profit / total_loss, 2)
+    elif total_profit > 1e-12:
+        profit_factor = "∞"
+    else:
+        profit_factor = None
+    avg_trade_return = round(sum(trade_returns) / len(trade_returns), 4) if trade_returns else None
 
     t0 = equity_curve[0]["t"]
     t1 = equity_curve[-1]["t"]
     span_ms = max(1, int(t1) - int(t0))
     span_years = span_ms / (1000.0 * 86400 * 365.25)
+    bar_interval_ms = span_ms / max(1, len(bars) - 1) if len(bars) > 1 else span_ms
+    avg_holding_bars = round(sum(holding_periods_ms) / len(holding_periods_ms) / max(1, bar_interval_ms), 1) if holding_periods_ms else None
+
+    # 原始波动率（不年化）：权益曲线收益率的标准差
+    raw_volatility = _raw_volatility(equity_curve)
+
+    # 年化指标仅在回测周期 >= 1 周时才计算，短周期（如几分钟）的年化外推无参考意义
+    MIN_SPAN_YEARS_FOR_ANNUALIZATION = 1.0 / 52.0  # 约 1 周
+    can_annualize = span_years >= MIN_SPAN_YEARS_FOR_ANNUALIZATION
+
     ann: float | None = None
-    if span_years > 0 and total_return_pct > -100:
+    if can_annualize and span_years > 0 and total_return_pct > -100:
         ann = ((1 + total_return_pct / 100.0) ** (1.0 / span_years) - 1.0) * 100
 
-    sharpe = _annualized_sharpe(equity_curve, span_years)
+    sharpe = _annualized_sharpe(equity_curve, span_years) if can_annualize else None
+
+    if can_annualize:
+        note = "不计手续费与滑点；年化按首尾时间线性外推；夏普基于权益逐期收益、无风险利率=0 年化，仅供参考。"
+    else:
+        note = "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
 
     return {
         "totalReturnPct": round(total_return_pct, 4),
@@ -220,10 +326,14 @@ def _compute_metrics(
         "sellCount": sum(1 for tr in trades if tr["action"] in ("sell", "cover")),
         "roundTripCount": completed,
         "winRatePct": round(wins / completed * 100, 2) if completed > 0 else None,
-        "annualizedReturnPct": round(ann, 4) if ann is not None else None,
+        "profitFactor": profit_factor,
+        "avgTradeReturnPct": avg_trade_return,
+        "avgHoldingBars": avg_holding_bars,
+        "rawVolatility": round(raw_volatility, 4) if raw_volatility is not None else None,
+        "annualizedReturnPct": round(ann, 2) if ann is not None else None,
         "sharpeRatio": round(sharpe, 4) if sharpe is not None else None,
         "bars": len(bars),
-        "note": "不计手续费与滑点；年化按首尾时间线性外推；夏普基于权益逐期收益、无风险利率=0 年化，仅供参考。",
+        "note": note,
     }
 
 
@@ -265,11 +375,14 @@ def momentum_params_for_symbol(symbol: str) -> MomentumParams:
 def momentum_params_from_body(body: dict, symbol: str | None = None) -> MomentumParams:
     """
     从请求体和配置文件构建动量参数，支持品种级别配置。
+    当 data_source="realtime" 时，优先使用 realtime 段下的微趋势参数。
     
     参数优先级：
     1. 请求体中的 params（最高优先级）
-    2. 配置文件中的品种特定参数（如 momentum.huyin）
-    3. 配置文件中的默认参数（momentum.default 或 momentum）
+    2. 配置文件 realtime.品种特定参数
+    3. 配置文件 realtime.默认参数
+    4. 配置文件中的品种特定历史参数
+    5. 配置文件中的默认历史参数
     """
     config = RUNTIME_CONFIG.get("momentum") or {}
     
@@ -285,8 +398,18 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
     if resolved and resolved in config and isinstance(config[resolved], dict):
         symbol_config = config[resolved]
     
-    # 合并默认配置和品种配置
-    merged = {**defaults, **symbol_config}
+    # 实时数据专用参数覆盖
+    data_source = (body.get("data_source") or "history").strip().lower()
+    realtime_config = {}
+    if data_source == "realtime":
+        rt = config.get("realtime") if isinstance(config.get("realtime"), dict) else {}
+        if isinstance(rt.get("default"), dict):
+            realtime_config = rt["default"]
+        if resolved and resolved in rt and isinstance(rt[resolved], dict):
+            realtime_config = {**realtime_config, **rt[resolved]}
+    
+    # 合并：defaults < symbol_config < realtime_config < body.params
+    merged = {**defaults, **symbol_config, **realtime_config}
     
     # 请求体中的参数具有最高优先级
     p = body.get("params") or {}
@@ -600,7 +723,10 @@ def run_reversal_backtest(
 
 
 def reversal_params_from_body(body: dict, symbol: str | None = None) -> ReversalParams:
-    """从请求体和配置文件构建反转策略参数。"""
+    """
+    从请求体和配置文件构建反转策略参数。
+    当 data_source="realtime" 时，优先使用 realtime 段下的微趋势参数。
+    """
     config = RUNTIME_CONFIG.get("reversal") or {}
     defaults = config.get("default") if isinstance(config.get("default"), dict) else config
 
@@ -611,7 +737,18 @@ def reversal_params_from_body(body: dict, symbol: str | None = None) -> Reversal
     if resolved and resolved in config and isinstance(config[resolved], dict):
         symbol_config = config[resolved]
 
-    merged = {**defaults, **symbol_config}
+    # 实时数据专用参数覆盖
+    data_source = (body.get("data_source") or "history").strip().lower()
+    realtime_config = {}
+    if data_source == "realtime":
+        rt = config.get("realtime") if isinstance(config.get("realtime"), dict) else {}
+        if isinstance(rt.get("default"), dict):
+            realtime_config = rt["default"]
+        if resolved and resolved in rt and isinstance(rt[resolved], dict):
+            realtime_config = {**realtime_config, **rt[resolved]}
+
+    # 合并：defaults < symbol_config < realtime_config < body.params
+    merged = {**defaults, **symbol_config, **realtime_config}
     p = body.get("params") or {}
 
     return ReversalParams(

@@ -135,13 +135,24 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             strategy = (body.get("strategy") or "").strip().lower()
             symbol = (body.get("symbol") or "").strip().lower()
             mode = (body.get("mode") or "long_only").strip().lower()
+            data_source = (body.get("data_source") or "history").strip().lower()
+            lookback_minutes = int(body.get("lookback_minutes", 5))
 
             if strategy not in ("momentum", "reversal"):
                 raise ValueError("strategy must be momentum or reversal")
             if mode not in ("long_only", "long_short"):
                 raise ValueError("mode must be long_only or long_short")
+            if data_source not in ("history", "realtime"):
+                raise ValueError("data_source must be history or realtime")
+            if lookback_minutes < 1 or lookback_minutes > 60:
+                raise ValueError("lookback_minutes must be between 1 and 60")
 
-            bars, interval, hist_err = load_history(symbol)
+            if data_source == "realtime":
+                from backend.backtest import load_realtime_bars
+                bars, interval, hist_err = load_realtime_bars(symbol, lookback_minutes)
+            else:
+                bars, interval, hist_err = load_history(symbol)
+
             if hist_err == "unknown_symbol":
                 raise ValueError(f"unknown symbol: {symbol}")
             if hist_err == "no_history" or not bars:
@@ -164,6 +175,8 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
                 "symbol": symbol,
                 "strategy": strategy,
                 "mode": mode,
+                "dataSource": data_source,
+                "lookbackMinutes": lookback_minutes if data_source == "realtime" else None,
                 "interval": interval,
                 "bars": len(bars),
                 "fromMs": t0,

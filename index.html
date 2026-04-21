@@ -136,6 +136,52 @@
   <div class="tab-content" id="silverTab">
   <div class="sortable-container" id="silverSortable">
 
+  <!-- 回测绩效卡片 -->
+  <div class="drag-section" data-section="backtest">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div id="backtestCard">
+      <div class="backtest-panel">
+        <div class="backtest-panel-head">
+          <span class="backtest-panel-title">📈 策略回测绩效</span>
+          <select id="backtestSymbol">
+            <option value="huyin">沪银</option>
+            <option value="comex">COMEX银</option>
+          </select>
+          <span class="backtest-source-label">实时数据(5min)</span>
+          <button id="backtestRefresh" title="刷新">⟳</button>
+        </div>
+        <div class="backtest-dual" id="backtestDual">
+          <div class="backtest-subcard momentum">
+            <div class="backtest-subhead">
+              <div class="backtest-subtitle">🚀 动量策略</div>
+              <div class="backtest-submeta" id="btMomentumMeta">Long-Only</div>
+            </div>
+            <div class="backtest-metrics" id="btMomentumMetrics">
+              <div class="bt-loading">加载中...</div>
+            </div>
+            <div class="backtest-chart-wrap">
+              <canvas id="btMomentumChart"></canvas>
+            </div>
+            <div class="backtest-subfoot" id="btMomentumFoot"></div>
+          </div>
+          <div class="backtest-subcard reversal">
+            <div class="backtest-subhead">
+              <div class="backtest-subtitle">🔄 反转策略</div>
+              <div class="backtest-submeta" id="btReversalMeta">Long-Only</div>
+            </div>
+            <div class="backtest-metrics" id="btReversalMetrics">
+              <div class="bt-loading">加载中...</div>
+            </div>
+            <div class="backtest-chart-wrap">
+              <canvas id="btReversalChart"></canvas>
+            </div>
+            <div class="backtest-subfoot" id="btReversalFoot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Price Cards -->
   <div class="drag-section" data-section="price">
     <div class="drag-handle" title="拖拽排序">⠿</div>
@@ -635,5 +681,6 @@
 <script src="assets/js/monitor/detail.js"></script>
 <script src="assets/js/monitor/drag.js"></script>
 <script src="assets/js/monitor/app.js"></script>
+<script src="assets/js/monitor/backtest.js"></script>
 </body>
 </html>

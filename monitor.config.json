@@ -111,6 +111,50 @@
       "bb_period": 15,
       "bb_mult": 2.0,
       "rsi_period": 14
+    },
+    "realtime": {
+      "default": {
+        "short_p": 3,
+        "long_p": 8,
+        "spread_entry": 0.005,
+        "spread_strong": 0.015,
+        "slope_entry": 0.002,
+        "strength_multiplier": 300,
+        "cooldown_bars": 5,
+        "bb_period": 8,
+        "bb_mult": 1.5,
+        "rsi_period": 7,
+        "bb_buy_kill": 0.2,
+        "bb_sell_kill": 0.8
+      },
+      "comex": {
+        "short_p": 3,
+        "long_p": 8,
+        "spread_entry": 0.002,
+        "spread_strong": 0.006,
+        "slope_entry": 0.001,
+        "strength_multiplier": 400,
+        "cooldown_bars": 5,
+        "bb_period": 8,
+        "bb_mult": 1.5,
+        "rsi_period": 7,
+        "bb_buy_kill": 0.10,
+        "bb_sell_kill": 0.90
+      },
+      "huyin": {
+        "short_p": 3,
+        "long_p": 8,
+        "spread_entry": 0.006,
+        "spread_strong": 0.018,
+        "slope_entry": 0.003,
+        "strength_multiplier": 250,
+        "cooldown_bars": 6,
+        "bb_period": 8,
+        "bb_mult": 1.5,
+        "rsi_period": 7,
+        "bb_buy_kill": 0.2,
+        "bb_sell_kill": 0.8
+      }
     }
   },
   "research": {
@@ -187,6 +231,44 @@
       "bb_period": 10,
       "ema_period": 10,
       "cooldown_bars": 2
+    },
+    "realtime": {
+      "default": {
+        "rsi_period": 7,
+        "rsi_oversold": 40,
+        "rsi_overbought": 60,
+        "rsi_extreme_low": 30,
+        "rsi_extreme_high": 70,
+        "bb_period": 8,
+        "bb_mult": 1.5,
+        "pctb_low": 0.15,
+        "pctb_high": 0.85,
+        "pctb_extreme_low": 0.05,
+        "pctb_extreme_high": 0.95,
+        "ema_period": 8,
+        "deviation_entry": 0.05,
+        "deviation_strong": 0.15,
+        "rsi_weight": 0.4,
+        "bb_weight": 0.35,
+        "deviation_weight": 0.25,
+        "min_score": 0.25,
+        "strong_score": 0.50,
+        "cooldown_bars": 5
+      },
+      "comex": {
+        "rsi_oversold": 42,
+        "rsi_overbought": 58,
+        "deviation_entry": 0.04,
+        "deviation_strong": 0.12,
+        "cooldown_bars": 5
+      },
+      "huyin": {
+        "rsi_oversold": 38,
+        "rsi_overbought": 62,
+        "deviation_entry": 0.06,
+        "deviation_strong": 0.18,
+        "cooldown_bars": 6
+      }
     }
   }
 }

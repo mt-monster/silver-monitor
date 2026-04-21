@@ -619,6 +619,7 @@ def _build_sse_snapshot() -> dict:
 def _buffer_precious_prices():
     """将贵金属/BTC 最新价格按时间窗口（BAR_WINDOW_MS）采样到 instrument_price_buffers。
     同一时间窗口内覆写末条（取最新价），跨窗口时追加新 bar，最多保留 200 条。
+    同时写入 realtime_backtest_buffers（每秒一个点，最多300点≈5分钟），用于短周期回测。
     """
     mapping = {
         "ag0": state.silver_cache,
@@ -635,6 +636,8 @@ def _buffer_precious_prices():
                 continue
             px = d["price"]
             ts_ms = d.get("timestamp") or now_ms
+
+            # ── 时间窗口 bar（用于信号计算）
             buf = state.instrument_price_buffers.get(inst_id, [])
             last_bar_ts = state.instrument_bar_timestamps.get(inst_id, 0)
             if not buf or ts_ms - last_bar_ts >= BAR_WINDOW_MS:
@@ -645,6 +648,13 @@ def _buffer_precious_prices():
             else:
                 buf[-1] = px  # 同一窗口：更新末条为最新价格
             state.instrument_price_buffers[inst_id] = buf
+
+            # ── 高频实时采样（用于短周期回测）
+            rt_buf = state.realtime_backtest_buffers.get(inst_id, [])
+            rt_buf.append({"t": ts_ms, "y": px})
+            if len(rt_buf) > 300:
+                rt_buf = rt_buf[-300:]
+            state.realtime_backtest_buffers[inst_id] = rt_buf
 
 
 def sync_precious_to_instrument_caches():

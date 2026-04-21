@@ -2,6 +2,13 @@
   const Monitor = window.Monitor;
   const { app, charts, constants, el, renderers } = Monitor;
 
+  // ── 初始化回测绩效卡片（由 app.js 在切到 silver tab 时调用）
+  Monitor.initBacktestCard = function () {
+    if (typeof Monitor.fetchAndRenderBacktest === 'function' && document.getElementById('backtestCard')) {
+      Monitor.fetchAndRenderBacktest();
+    }
+  };
+
   Monitor.updatePriceCards = function (data) {
     const hu = data.huyin;
     const co = data.comex;
