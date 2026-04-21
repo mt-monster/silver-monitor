@@ -152,14 +152,10 @@ def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool,
 def _fuse_with_rsi(base_signal: str, rsi: float) -> str:
     """RSI 超买/超卖修正信号。"""
     sig = base_signal
-    if sig == "buy" and rsi > 75:
+    if sig == "buy" and rsi > 70:
         sig = "neutral"
-    elif sig == "strong_buy" and rsi > 85:
-        sig = "buy"
-    elif sig == "sell" and rsi < 25:
+    elif sig == "sell" and rsi < 30:
         sig = "neutral"
-    elif sig == "strong_sell" and rsi < 15:
-        sig = "sell"
     return sig
 
 

@@ -27,6 +27,9 @@ from backend.state import state
 from backend.strategies.momentum import calc_momentum
 from backend.utils import get_conv, get_conv_gold
 
+# 时间窗口采样：每个 bar 代表固定时长内的最新价格（毫秒）
+BAR_WINDOW_MS: int = int(RUNTIME_CONFIG.get("frontend", {}).get("bar_window_ms", 30000))
+
 
 # ── 数据源动态分发 ──────────────────────────────────────────────
 # (instrument_id, source_key) → fetch function
@@ -564,13 +567,18 @@ class CommodityPoller(threading.Thread):
                             existing = state.instrument_caches.get(inst.id, {}).get("data") or {}
                             existing.update(data)
                             state.instrument_caches[inst.id] = {"data": existing, "ts": time.time()}
-                            # Buffer price for signal computation
+                            # 时间窗口采样 price buffer
                             _buf = state.instrument_price_buffers.get(inst.id, [])
-                            if not _buf or _buf[-1] != data["price"]:
+                            _last_ts = state.instrument_bar_timestamps.get(inst.id, 0)
+                            _ts_ms = data.get("timestamp") or int(time.time() * 1000)
+                            if not _buf or _ts_ms - _last_ts >= BAR_WINDOW_MS:
                                 _buf.append(data["price"])
+                                state.instrument_bar_timestamps[inst.id] = _ts_ms
                                 if len(_buf) > 200:
                                     _buf = _buf[-200:]
-                                state.instrument_price_buffers[inst.id] = _buf
+                            else:
+                                _buf[-1] = data["price"]
+                            state.instrument_price_buffers[inst.id] = _buf
                 updated_ids = [inst.id for inst in instruments]
                 _recompute_signals(updated_ids)
                 state.data_version += 1
@@ -609,7 +617,9 @@ def _build_sse_snapshot() -> dict:
 
 
 def _buffer_precious_prices():
-    """将贵金属/BTC 最新价格追加到 instrument_price_buffers（去重），供信号计算使用。"""
+    """将贵金属/BTC 最新价格按时间窗口（BAR_WINDOW_MS）采样到 instrument_price_buffers。
+    同一时间窗口内覆写末条（取最新价），跨窗口时追加新 bar，最多保留 200 条。
+    """
     mapping = {
         "ag0": state.silver_cache,
         "xag": state.comex_silver_cache,
@@ -617,17 +627,23 @@ def _buffer_precious_prices():
         "xau": state.comex_gold_cache,
         "btc": state.btc_cache,
     }
+    now_ms = int(time.time() * 1000)
     with state.cache_lock:
         for inst_id, cache in mapping.items():
             d = cache.get("data")
             if not d or not d.get("price"):
                 continue
             px = d["price"]
+            ts_ms = d.get("timestamp") or now_ms
             buf = state.instrument_price_buffers.get(inst_id, [])
-            if not buf or buf[-1] != px:
+            last_bar_ts = state.instrument_bar_timestamps.get(inst_id, 0)
+            if not buf or ts_ms - last_bar_ts >= BAR_WINDOW_MS:
                 buf.append(px)
+                state.instrument_bar_timestamps[inst_id] = ts_ms
                 if len(buf) > 200:
                     buf = buf[-200:]
+            else:
+                buf[-1] = px  # 同一窗口：更新末条为最新价格
             state.instrument_price_buffers[inst_id] = buf
 
 

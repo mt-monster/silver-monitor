@@ -78,6 +78,7 @@
     Monitor.constants.ALERT_POLL_MS = Number(frontendConfig.alert_poll_ms);
     Monitor.constants.defaultApiHost = frontendConfig.default_api_host;
     Monitor.constants.fallbackPort = Number(frontendConfig.fallback_port);
+    Monitor.constants.BAR_WINDOW_MS = Number(frontendConfig.bar_window_ms || 30000);
     Monitor.apiBase = Monitor.getApiBase();
 
     const momentum = config?.momentum || defaultConfig.momentum;

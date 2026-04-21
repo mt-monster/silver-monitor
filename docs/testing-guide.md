@@ -1,6 +1,6 @@
 # 测试指导
 
-> 更新日期：2026-04-20
+> 更新日期：2026-04-21
 
 ## 一、文档目标
 
@@ -94,6 +94,7 @@ netstat -ano | findstr :8765
 - `tests/test_smoke.py`
 - `tests/test_backtest_api.py`
 - `tests/test_threshold_api.py`
+- `tests/test_source_switch.py`（数据源切换 API）
 
 ### 3.3 数据源联调测试
 
@@ -350,20 +351,21 @@ python tests/verify_infoway_btc.py
 
 ## 九、当前已知问题与限制
 
-### 9.1 当前自动化测试存在一个已知失败
+### 9.1 当前自动化测试存在已知失败
 
 现状：
 
 - `tests/test_momentum_strategy.py::MomentumCoreTestCase::test_custom_thresholds_weaker_entry` 当前失败
+- `tests/test_source_switch.py` 全部用例当前失败（数据源切换 API 尚未实现）
 
 现象：
 
-- 断言预期 `buy` / `strong_buy`
-- 实际返回 `neutral`
+- `test_custom_thresholds_weaker_entry`：断言预期 `buy` / `strong_buy`，实际返回 `neutral`
+- `test_source_switch.py`：接口未实现，返回 404
 
 说明：
 
-- 这是当前仓库已存在问题，不是最近后台管理或数据源切换文档导致的问题
+- 这是当前仓库已存在问题，不是最近更改导致的新回归
 - 在全量回归时，需要将其视为已知基线问题，而不是新回归
 
 ### 9.2 数据源切换当前仅对运行态生效

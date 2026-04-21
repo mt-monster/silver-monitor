@@ -16,7 +16,7 @@ DEFAULT_CONFIG = {
         },
         "max_history": 200,
     },
-    "frontend": {"default_api_host": "127.0.0.1", "fallback_port": 8765, "poll_ms": 1000, "alert_poll_ms": 2000},
+    "frontend": {"default_api_host": "127.0.0.1", "fallback_port": 8765, "poll_ms": 1000, "alert_poll_ms": 2000, "bar_window_ms": 30000},
     "momentum": {
         "short_p": 5,
         "long_p": 20,

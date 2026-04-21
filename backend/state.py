@@ -53,8 +53,11 @@ class AppState:
     # 通用品种缓存: instrument_id → {"data": {...}, "ts": float}
     instrument_caches: dict = field(default_factory=dict)
 
-    # 品种价格环形缓冲：instrument_id → list[float]（最近 200 个去重价格，用于计算信号）
+    # 品种价格环形缓冲：instrument_id → list[float]（最近 200 个时间窗口 bar，用于计算信号）
     instrument_price_buffers: dict = field(default_factory=dict)
+
+    # 各品种最后一个 bar 的时间戳（ms），用于时间窗口采样（BAR_WINDOW_MS）
+    instrument_bar_timestamps: dict = field(default_factory=dict)
 
     # 预计算的动量信号：instrument_id → {"signal": str, "strength": float, ...} | None
     instrument_signals: dict = field(default_factory=dict)

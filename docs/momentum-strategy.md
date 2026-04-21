@@ -1,6 +1,6 @@
 # 动量策略：计算说明、使用方法与优化空间
 
-> 最后更新：2026-04-16 — 已覆盖全品类商品（49 品种）
+> 最后更新：2026-04-21 — 新增反转策略；指标函数拆分至 indicators.js；改为时间窗口采样
 
 ---
 
@@ -116,7 +116,7 @@ minLen = long_p + 2
 | **参数来源** | `monitor.config.json` → `core.js` → `Monitor.momentumThresholds` / `momentumPeriods` |
 | **特殊功能** | 信号变化时对 `strong_buy`/`strong_sell` 播放提示音 |
 
-**采样规则**：仅在 `price > 0 && !closed && !error` 时入队，且与上一点价格相同时跳过（去重防 EMA 张口被淹没）。
+**采样规则（时间窗口 Bar）**：仅在 `price > 0 && !closed && !error` 时处理。每个 Bar 窗口时长由 `frontend.bar_window_ms`（默认 10000ms = 10 秒）控制：同一窗口内新 tick 覆盖当前 Bar 末值（原地更新）；窗口切换时追加新 Bar。这替代了原来的纯价格去重，使周期参数与实际时间对应而非依赖价格变化频率。
 
 ### 3.2 品种详情页（全品类 Detail）
 
@@ -201,10 +201,12 @@ minLen = long_p + 2
 
 | 对比项 | 前端 (JS) | 后端 (Python) |
 |---|---|---|
-| EMA | `Monitor.ema()` (momentum.js) | `ema_series()` / `_incremental_ema()` |
-| Bollinger | `Monitor.bollingerAt()` | `bollinger_at()` / `_incremental_bb()` |
-| BB 融合 | `_fuseWithBB()` | `_fuse_with_bb()` |
-| 信号计算 | `Monitor.calcMomentum()` | `calc_momentum()` |
+| EMA | `Monitor.ema()` (**indicators.js**) | `ema_series()` / `_incremental_ema()` |
+| Bollinger | `Monitor.bollingerAt()` (**indicators.js**) | `bollinger_at()` / `_incremental_bb()` |
+| RSI | `Monitor.rsiAt()` (**indicators.js**) | — |
+| BB 融合 | `_fuseWithBB()` (momentum.js) | `_fuse_with_bb()` |
+| 信号计算 | `Monitor.calcMomentum()` (momentum.js) | `calc_momentum()` |
+| 反转信号 | `Monitor.calcReversal()` (**reversal.js**) | — (前端专属) |
 | 信号渲染 | `Monitor.renderSignal(prefix, info, decimals)` | — (前端专属) |
 
 **注意**：后端 `calc_momentum` 额外计算 Squeeze（缩口检测），前端 `calcMomentum` 不含此功能。
@@ -229,7 +231,71 @@ minLen = long_p + 2
 
 ---
 
-## 7. 优化空间
+## 7. 反转策略（Mean-Reversion）
+
+### 7.1 策略概览
+
+反转策略与动量策略共享同一组 Bar 数据队列（`_pushByTimeWindow` 时间窗口采样），但判断逻辑相反：寻找**价格偏离均值过大、RSI 超买超卖**的反转入场机会。
+
+代码：`assets/js/monitor/reversal.js` — `Monitor.calcReversal()`
+
+**四档输出信号**：
+
+| 信号 key | 中文 | 含义 |
+|---|---|---|
+| `reversal_buy` | 反弹买入 | RSI 超卖 + 价格低于 BB 下轨一定偏差 |
+| `reversal_strong_buy` | 强烈反弹 | RSI 深度超卖 + 偏差超过强信号阈值 |
+| `reversal_sell` | 回落卖出 | RSI 超买 + 价格高于 BB 上轨一定偏差 |
+| `reversal_strong_sell` | 强烈回落 | RSI 深度超买 + 偏差超过强信号阈值 |
+
+### 7.2 核心算法
+
+1. **EMA 均线**（`ema_period`）：作为价格中枢参考。
+2. **Bollinger Band**（`bb_period`, `bb_mult`）：计算上下轨和 %B 位置。
+3. **RSI**（`rsi_period`）：衡量短期超买超卖程度。
+4. **偏差计算**：`deviation = |price - EMA_mid| / EMA_mid × 100 (%)`
+
+**最少样本数**：
+
+```
+minLen = max(rsi_period + 1, bb_period, ema_period) + 2
+```
+
+以 COMEX 银默认配置（`rsi_period=14, bb_period=10, ema_period=10`）为例：
+`minLen = max(15, 10, 10) + 2 = 17`
+以 10s/bar 计算：约需 **170 秒**数据后开始输出信号。
+
+### 7.3 参数配置
+
+```json
+"reversal": {
+  "default": {
+    "rsi_period": 14,
+    "bb_period": 20,
+    "ema_period": 20,
+    "rsi_oversold": 30,
+    "rsi_overbought": 70,
+    "deviation_entry": 0.5,
+    "deviation_strong": 1.2,
+    "bb_mult": 2.0,
+    "cooldown_bars": 3
+  },
+  "comex": {
+    "rsi_oversold": 32,
+    "rsi_overbought": 68,
+    "deviation_entry": 1.0,
+    "deviation_strong": 1.8,
+    "bb_period": 10,
+    "ema_period": 10,
+    "cooldown_bars": 2
+  }
+}
+```
+
+---
+
+## 8. 优化空间
+
 
 ### 7.1 信号质量
 

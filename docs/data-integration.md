@@ -1,6 +1,6 @@
 # 数据对接现状
 
-> 更新日期：2026-04-20
+> 更新日期：2026-04-21
 
 ## 一、数据源总览
 
@@ -120,6 +120,7 @@ Tick 环形缓冲区（用于异常跳动告警）：
 
 | 字段 | 品种 |
 |------|------|
+| `instrument_bar_timestamps` | 全品种 | `dict[inst_id → last_bar_ts_ms]` — 时间窗口采样用 |
 | `silver_tick_ring` | AG0 |
 | `comex_silver_tick_ring` | XAG |
 | `gold_tick_ring` | AU0 |
@@ -162,7 +163,27 @@ Tick 环形缓冲区（用于异常跳动告警）：
 
 ---
 
-## 六、连通性测试结果（2026-04-20）
+## 六、时间窗口 Bar 采样
+
+后端轮询和前端接收均使用**时间窗口采样**，替代原来的纯价格去重逻辑：
+
+| 项目 | 说明 |
+|---|---|
+| 配置键 | `frontend.bar_window_ms`（默认 `10000` ms = 10 秒）|
+| 后端常量 | `backend/pollers.py` 中 `BAR_WINDOW_MS` |
+| 后端逻辑 | `_buffer_precious_prices()` 和 `CommodityPoller` 内联缓冲均检查 `instrument_bar_timestamps` |
+| 前端逻辑 | `Monitor._pushByTimeWindow(arr, price, ts, cap)` （momentum.js）|
+
+**采样规则**：
+- 同一窗口（`ts_ms - last_bar_ts < BAR_WINDOW_MS`）：新价格覆盖当前 Bar（原地更新）
+- 窗口切换：追加新 Bar，更新 `last_bar_ts`
+- 队列容量上限受 `cap` 参数控制（核心品种 180；详情页 600）
+
+此设计使指标周期（如 EMA/BB 的 N ）与实际时间正相关，避免市场扑直时大量重复价格导致信号失负。
+
+---
+
+## 七、连通性测试结果（2026-04-20）
 
 ### iFinD SDK
 

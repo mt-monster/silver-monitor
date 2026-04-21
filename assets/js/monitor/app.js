@@ -25,8 +25,32 @@
     }
   };
 
+  /** 将实时价格推入各品种 livePoints 时间窗口 Bar（集中推送，避免各策略函数重复写入） */
+  Monitor._pushLiveData = function (data) {
+    const cap = 180;
+    const hu = data.huyin;
+    const co = data.comex;
+    const au = data.hujin;
+    const cg = data.comexGold;
+    const btc = data.btc;
+    if (hu && !hu.error && !hu.closed && hu.price > 0)
+      Monitor._pushByTimeWindow(app.silverLivePoints, hu.price, hu.timestamp || Date.now(), cap);
+    if (co && !co.error && !co.closed && co.price > 0)
+      Monitor._pushByTimeWindow(app.comexSilverLivePoints, co.price, co.timestamp || Date.now(), cap);
+    app.goldLivePoints = app.goldLivePoints || [];
+    app.comexGoldLivePoints = app.comexGoldLivePoints || [];
+    if (au && !au.error && !au.closed && au.price > 0)
+      Monitor._pushByTimeWindow(app.goldLivePoints, au.price, au.timestamp || Date.now(), cap);
+    if (cg && !cg.error && !cg.closed && cg.price > 0)
+      Monitor._pushByTimeWindow(app.comexGoldLivePoints, cg.price, cg.timestamp || Date.now(), cap);
+    app.btcLivePoints = app.btcLivePoints || [];
+    if (btc && !btc.error && !btc.closed && btc.price > 0)
+      Monitor._pushByTimeWindow(app.btcLivePoints, btc.price, btc.timestamp || Date.now(), cap);
+  };
+
   /** 统一处理 /api/all 返回或 SSE push 的数据 */
   Monitor._applyAllData = function (data) {
+    Monitor._pushLiveData(data);
     Monitor.updatePriceCards(data);
     Monitor.updateCharts(data);
     Monitor.recordTicks(data);
@@ -66,6 +90,7 @@
       activeSources: ["SSE"],
     };
 
+    Monitor._pushLiveData(data);
     Monitor.updatePriceCards(data);
     Monitor.recordTicks(data);
     Monitor.renderTickTables();
