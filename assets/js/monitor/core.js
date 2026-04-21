@@ -124,7 +124,7 @@
 
     // 加载品种特定阈值（动态发现所有key）
     Object.keys(momentum).forEach(symbol => {
-      if (symbol === "default" || symbol === "category_defaults" || typeof momentum[symbol] !== "object") return;
+      if (symbol === "default" || symbol === "category_defaults" || symbol === "realtime" || typeof momentum[symbol] !== "object") return;
       const s = momentum[symbol];
       Monitor.momentumThresholds[symbol] = {
         spreadEntry: Number(s.spread_entry ?? defaults.spread_entry),
@@ -145,12 +145,45 @@
       default: { shortP: Number(defaults.short_p), longP: Number(defaults.long_p) },
     };
     Object.keys(momentum).forEach(symbol => {
-      if (symbol === "default" || symbol === "category_defaults" || typeof momentum[symbol] !== "object") return;
+      if (symbol === "default" || symbol === "category_defaults" || symbol === "realtime" || typeof momentum[symbol] !== "object") return;
       Monitor.momentumPeriods[symbol] = {
         shortP: Number(momentum[symbol].short_p ?? defaults.short_p),
         longP: Number(momentum[symbol].long_p ?? defaults.long_p),
       };
     });
+
+    // ── 实时数据专用参数覆盖（realtime 段）─────────────────────
+    // 使实时信号面板与回测使用同一套微趋势参数
+    const rtMomentum = momentum.realtime;
+    if (rtMomentum && typeof rtMomentum === "object") {
+      const rtDefaults = rtMomentum.default || {};
+      Object.keys(rtMomentum).forEach(symbol => {
+        if (symbol === "default" || typeof rtMomentum[symbol] !== "object") return;
+        const rt = rtMomentum[symbol];
+        // 合并到已有的品种阈值配置中
+        if (Monitor.momentumThresholds[symbol]) {
+          Monitor.momentumThresholds[symbol] = {
+            ...Monitor.momentumThresholds[symbol],
+            spreadEntry: Number(rt.spread_entry ?? rtDefaults.spread_entry ?? Monitor.momentumThresholds[symbol].spreadEntry),
+            spreadStrong: Number(rt.spread_strong ?? rtDefaults.spread_strong ?? Monitor.momentumThresholds[symbol].spreadStrong),
+            slopeEntry: Number(rt.slope_entry ?? rtDefaults.slope_entry ?? Monitor.momentumThresholds[symbol].slopeEntry),
+            strengthMul: Number(rt.strength_multiplier ?? rtDefaults.strength_multiplier ?? Monitor.momentumThresholds[symbol].strengthMul),
+            bbPeriod: Number(rt.bb_period ?? rtDefaults.bb_period ?? Monitor.momentumThresholds[symbol].bbPeriod),
+            bbMult: Number(rt.bb_mult ?? rtDefaults.bb_mult ?? Monitor.momentumThresholds[symbol].bbMult),
+            rsiPeriod: Number(rt.rsi_period ?? rtDefaults.rsi_period ?? Monitor.momentumThresholds[symbol].rsiPeriod),
+            cooldownBars: Number(rt.cooldown_bars ?? rtDefaults.cooldown_bars ?? Monitor.momentumThresholds[symbol].cooldownBars),
+            bbBuyKill: Number(rt.bb_buy_kill ?? rtDefaults.bb_buy_kill ?? Monitor.momentumThresholds[symbol].bbBuyKill),
+            bbSellKill: Number(rt.bb_sell_kill ?? rtDefaults.bb_sell_kill ?? Monitor.momentumThresholds[symbol].bbSellKill),
+          };
+        }
+        if (Monitor.momentumPeriods[symbol]) {
+          Monitor.momentumPeriods[symbol] = {
+            shortP: Number(rt.short_p ?? rtDefaults.short_p ?? Monitor.momentumPeriods[symbol].shortP),
+            longP: Number(rt.long_p ?? rtDefaults.long_p ?? Monitor.momentumPeriods[symbol].longP),
+          };
+        }
+      });
+    }
     if (typeof Monitor.refreshMomentumLabels === "function") Monitor.refreshMomentumLabels();
 
     // ── 反转策略参数加载 ──────────────────────────────────────
@@ -159,9 +192,26 @@
     Monitor.reversalConfig = reversal;
     Monitor.reversalParams = { default: { ...rvDefaults } };
     Object.keys(reversal).forEach(symbol => {
-      if (symbol === "default" || typeof reversal[symbol] !== "object") return;
+      if (symbol === "default" || symbol === "realtime" || typeof reversal[symbol] !== "object") return;
       Monitor.reversalParams[symbol] = { ...rvDefaults, ...reversal[symbol] };
     });
+
+    // ── 反转策略 realtime 段覆盖 ──────────────────────────────
+    const rtReversal = reversal.realtime;
+    if (rtReversal && typeof rtReversal === "object") {
+      const rtDefaults = rtReversal.default || {};
+      Object.keys(rtReversal).forEach(symbol => {
+        if (symbol === "default" || typeof rtReversal[symbol] !== "object") return;
+        const rt = rtReversal[symbol];
+        if (Monitor.reversalParams[symbol]) {
+          Monitor.reversalParams[symbol] = {
+            ...Monitor.reversalParams[symbol],
+            ...rtDefaults,
+            ...rt,
+          };
+        }
+      });
+    }
   };
 
   // 品种 ID 别名映射（detail 页用 instrument ID，momentum 页/配置用 legacy key）

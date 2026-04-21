@@ -256,6 +256,7 @@
         "cooldown_bars": 5
       },
       "comex": {
+        "rsi_period": 7,
         "rsi_oversold": 42,
         "rsi_overbought": 58,
         "deviation_entry": 0.04,

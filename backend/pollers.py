@@ -81,13 +81,23 @@ _SYMBOL_ALIASES = {"ag0": "huyin", "xag": "comex", "au0": "hujin", "xau": "comex
 
 
 def _momentum_params_for(inst_id: str):
-    """根据品种 ID 从 RUNTIME_CONFIG 构建动量参数（轻量版，避免循环导入 backtest）。"""
+    """根据品种 ID 从 RUNTIME_CONFIG 构建动量参数（轻量版，避免循环导入 backtest）。
+    当存在 realtime 段时，优先加载 realtime 下的微趋势参数，使实时信号与回测保持一致。"""
     from backend.strategies.momentum import MomentumParams
     config = RUNTIME_CONFIG.get("momentum") or {}
     defaults = config.get("default") if isinstance(config.get("default"), dict) else config
     resolved = _SYMBOL_ALIASES.get(inst_id, inst_id)
     sym_cfg = config.get(resolved, {}) if isinstance(config.get(resolved), dict) else {}
-    m = {**defaults, **sym_cfg}
+
+    # 实时数据专用参数覆盖（与 backtest.py momentum_params_from_body 逻辑对齐）
+    rt_config = {}
+    rt = config.get("realtime") if isinstance(config.get("realtime"), dict) else {}
+    if isinstance(rt.get("default"), dict):
+        rt_config = rt["default"]
+    if resolved and resolved in rt and isinstance(rt[resolved], dict):
+        rt_config = {**rt_config, **rt[resolved]}
+
+    m = {**defaults, **sym_cfg, **rt_config}
     return MomentumParams(
         short_p=int(m.get("short_p", 5)),
         long_p=int(m.get("long_p", 20)),

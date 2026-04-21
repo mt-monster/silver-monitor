@@ -232,7 +232,33 @@
       co: "comex",
       au: "hujin",
       cg: "comex_gold",
+      btc: "btc",
     };
+
+    // 更新 EMA 周期标签（始终更新，即使 info 为 null）
+    const symbol = symbolByPrefix[prefix];
+    if (symbol && Monitor.getMomentumPeriods) {
+      const periods = Monitor.getMomentumPeriods(symbol);
+      if (periods) {
+        const badgeNode = document.getElementById(prefix + "SignalBadge");
+        let tagEl = null;
+        if (badgeNode) {
+          const card = badgeNode.closest(".signal-card");
+          if (card) tagEl = card.querySelector(".ema-tag");
+        }
+        if (!tagEl) {
+          const label = document.getElementById(prefix + "SigLabel");
+          if (label) tagEl = label.querySelector(".ema-tag");
+        }
+        if (tagEl) {
+          const current = tagEl.textContent;
+          let suffix = "";
+          if (current.includes("（")) suffix = current.slice(current.indexOf("（"));
+          else if (current.includes("+Boll")) suffix = current.slice(current.indexOf("+Boll"));
+          tagEl.textContent = `EMA${periods.shortP}/${periods.longP}${suffix}`;
+        }
+      }
+    }
 
     const findEl = (...ids) => ids.map(id => el(id)).find(Boolean);
 
@@ -380,21 +406,8 @@
 
   Monitor.refreshMomentumLabels = function () {
 
-    const { shortP, longP } = Monitor.momentumPeriods?.default || { shortP: 5, longP: 20 };
-
-    const tag = `EMA${shortP}/${longP}+Boll（动量+带融合）`;
-
-    document.querySelectorAll(".signal-card .ema-tag").forEach(node => {
-
-      node.textContent = tag;
-
-    });
-
-    document.querySelectorAll(".momentum-roc-label").forEach(node => {
-
-      node.textContent = "短线斜率";
-
-    });
+    // 标签已由 renderSignal 根据品种特定周期动态更新，此处无需全局统一刷新。
+    // 保留该函数以防止 core.js 调用时报错。
 
   };
 

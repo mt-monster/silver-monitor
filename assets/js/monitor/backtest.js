@@ -42,7 +42,6 @@
         <span class="bt-label">总收益率</span>
         <span class="bt-val bt-main ${_clsForPct(m.totalReturnPct)}">${_fmtPct(m.totalReturnPct)}</span>
       </div>
-      ${annRow}
       <div class="bt-row">
         <span class="bt-label">最大回撤</span>
         <span class="bt-val ${_clsForPct(-Math.abs(m.maxDrawdownPct || 0))}">${_fmtPct(-Math.abs(m.maxDrawdownPct || 0))}</span>
