@@ -48,17 +48,23 @@
 
   // 旧 symbol 名到注册表 id 的映射
   const _ALIASES = { huyin: "ag0", comex: "xag", hujin: "au0", comex_gold: "xau" };
+  const _REVERSE_ALIASES = { ag0: "huyin", xag: "comex", au0: "hujin", xau: "comex_gold" };
 
   function collectBody() {
     const rawSym = el("symbolSelect").value;
     const symbol = _ALIASES[rawSym] || rawSym;
+    const dataSource = el("dataSourceSelect").value;
     var base = {
       strategy: currentStrategy,
       symbol: symbol,
       mode: el("modeSelect").value,
       commission_rate: Number(el("commissionRate").value) / 100,
       slippage_pct: Number(el("slippagePct").value) / 100,
+      data_source: dataSource,
     };
+    if (dataSource === "realtime") {
+      base.lookback_minutes = Number(el("lookbackMinutes").value);
+    }
     if (currentStrategy === "reversal") {
       base.params = {
         rsi_period: Number(el("rvRsiPeriod").value),
@@ -152,13 +158,40 @@
     }
   }
 
+  function _historyParamsFor(sym) {
+    const cfg = Monitor.momentumConfig || {};
+    const defaults = cfg.default || {};
+    const key = _REVERSE_ALIASES[sym] || sym;
+    const s = cfg[key] || {};
+    return {
+      shortP: s.short_p ?? defaults.short_p ?? 5,
+      longP: s.long_p ?? defaults.long_p ?? 20,
+      spreadEntry: s.spread_entry ?? defaults.spread_entry ?? 0.10,
+      spreadStrong: s.spread_strong ?? defaults.spread_strong ?? 0.35,
+      slopeEntry: s.slope_entry ?? defaults.slope_entry ?? 0.02,
+      bbPeriod: s.bb_period ?? defaults.bb_period ?? 20,
+      bbMult: s.bb_mult ?? defaults.bb_mult ?? 2.0,
+      rsiPeriod: s.rsi_period ?? defaults.rsi_period ?? 14,
+      cooldownBars: s.cooldown_bars ?? defaults.cooldown_bars ?? 0,
+    };
+  }
+
   function applySymbolDefaults() {
     const sel = el("symbolSelect");
     const opt = sel.options[sel.selectedIndex];
     const sym = sel.value;
     const cat = opt ? opt.dataset.category : null;
-    const th = Monitor.getMomentumThresholds ? Monitor.getMomentumThresholds(sym, cat) : {};
-    const per = Monitor.getMomentumPeriods ? Monitor.getMomentumPeriods(sym, cat) : {};
+    const dataSource = el("dataSourceSelect").value;
+
+    var th, per;
+    if (dataSource === "history") {
+      th = _historyParamsFor(sym);
+      per = th;
+    } else {
+      th = Monitor.getMomentumThresholds ? Monitor.getMomentumThresholds(sym, cat) : {};
+      per = Monitor.getMomentumPeriods ? Monitor.getMomentumPeriods(sym, cat) : {};
+    }
+
     const set = (id, v) => { const n = el(id); if (n && v != null) n.value = v; };
     set("shortP", per.shortP);
     set("longP", per.longP);
@@ -169,6 +202,15 @@
     set("bbMult", th.bbMult);
     set("rsiPeriod", th.rsiPeriod);
     set("cooldownBars", th.cooldownBars);
+  }
+
+  function onDataSourceChange() {
+    const dataSource = el("dataSourceSelect").value;
+    const lookbackLabel = el("lookbackLabel");
+    if (lookbackLabel) {
+      lookbackLabel.style.display = dataSource === "realtime" ? "" : "none";
+    }
+    applySymbolDefaults();
   }
 
   function renderMetrics(meta, metrics, gridId, metaId) {
@@ -303,6 +345,8 @@
     try {
       Monitor.apiBase = Monitor.getApiBase();
       const body = collectBody();
+      delete body.data_source;
+      delete body.lookback_minutes;
       body.train_ratio = 0.7;
       const resp = await fetch(`${Monitor.apiBase}/api/backtest/walk-forward`, {
         method: "POST",
@@ -363,6 +407,8 @@
       if (!Object.keys(grid).length) throw new Error("至少指定一个参数范围");
 
       const body = collectBody();
+      delete body.data_source;
+      delete body.lookback_minutes;
       const payload_body = {
         symbol: body.symbol,
         mode: body.mode,
@@ -429,6 +475,7 @@
     el("runBacktestBtn").addEventListener("click", runBacktest);
     el("runWalkForwardBtn").addEventListener("click", runWalkForward);
     el("runGridSearchBtn").addEventListener("click", runGridSearch);
+    el("dataSourceSelect").addEventListener("change", onDataSourceChange);
   }
 
   init();

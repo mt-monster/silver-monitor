@@ -291,6 +291,15 @@
           <option value="long_short">Long-Short</option>
         </select>
       </label>
+      <label>数据源
+        <select id="dataSourceSelect">
+          <option value="realtime">实时数据（秒级，与监控口径一致）</option>
+          <option value="history">历史数据（日线/小时线，长周期验证）</option>
+        </select>
+      </label>
+      <label id="lookbackLabel">回望分钟
+        <input type="number" id="lookbackMinutes" value="5" min="1" max="60" step="1">
+      </label>
     </div>
 
     <!-- 动量策略参数 -->

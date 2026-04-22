@@ -460,6 +460,7 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         rsi_period=int(p.get("rsi_period", merged.get("rsi_period", 14))),
         bb_buy_kill=float(p.get("bb_buy_kill", merged.get("bb_buy_kill", 0.3))),
         bb_sell_kill=float(p.get("bb_sell_kill", merged.get("bb_sell_kill", 0.7))),
+        min_volatility_pct=float(p.get("min_volatility_pct", merged.get("min_volatility_pct", 0.0))),
     )
 
 
@@ -593,6 +594,7 @@ def run_grid_search(
                 rsi_period=int(override.get("rsi_period", 14)),
                 bb_buy_kill=float(override.get("bb_buy_kill", 0.3)),
                 bb_sell_kill=float(override.get("bb_sell_kill", 0.7)),
+                min_volatility_pct=float(override.get("min_volatility_pct", 0.0)),
             )
         except (TypeError, ValueError):
             continue

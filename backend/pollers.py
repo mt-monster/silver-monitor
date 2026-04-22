@@ -24,7 +24,7 @@ from backend.sources import (
 from backend.ifind import fetch_huyin_ifind, fetch_comex_silver_ifind, fetch_comex_gold_ifind
 from backend.infoway import fetch_comex_silver_infoway, fetch_comex_gold_infoway, fetch_btc_infoway
 from backend.state import state
-from backend.strategies.momentum import calc_momentum
+from backend.strategies.momentum import calc_momentum, _apply_signal_cooldown
 from backend.utils import get_conv, get_conv_gold
 
 # 时间窗口采样：每个 bar 代表固定时长内的最新价格（毫秒）
@@ -111,19 +111,40 @@ def _momentum_params_for(inst_id: str):
         rsi_period=int(m.get("rsi_period", 14)),
         bb_buy_kill=float(m.get("bb_buy_kill", 0.3)),
         bb_sell_kill=float(m.get("bb_sell_kill", 0.7)),
+        min_volatility_pct=float(m.get("min_volatility_pct", 0.0)),
     )
 
 
 def _recompute_signals(inst_ids: list[str]):
     """重算指定品种的动量信号，存入 state.instrument_signals。
-    使用 realtime_backtest_buffers（1秒采样）以与回测口径保持一致。"""
+    使用 realtime_backtest_buffers（1秒采样）以与回测口径保持一致。
+    支持 cooldown_bars：方向翻转后 N 个 bar 内压制信号为 neutral。"""
     with state.cache_lock:
         for iid in inst_ids:
             rt_buf = state.realtime_backtest_buffers.get(iid, [])
             buf = [p["y"] for p in rt_buf]
             params = _momentum_params_for(iid)
             if len(buf) >= params.long_p + 2:
-                state.instrument_signals[iid] = calc_momentum(buf, params)
+                raw = calc_momentum(buf, params)
+                if raw:
+                    sig = raw["signal"]
+                    cooldown = state.instrument_momentum_cooldown.get(iid, 0)
+                    last_active = state.instrument_momentum_last_active.get(iid, "neutral")
+
+                    final_sig, new_cooldown, updated_last = _apply_signal_cooldown(
+                        sig, last_active, cooldown, params.cooldown_bars
+                    )
+
+                    if final_sig != sig:
+                        raw["originalSignal"] = sig
+                    raw["signal"] = final_sig
+                    state.instrument_momentum_cooldown[iid] = new_cooldown
+                    if updated_last:
+                        state.instrument_momentum_last_active[iid] = sig
+
+                    state.instrument_signals[iid] = raw
+                else:
+                    state.instrument_signals[iid] = None
             else:
                 state.instrument_signals[iid] = None
 
@@ -173,6 +194,7 @@ def _recompute_reversal_signals(inst_ids: list[str]):
     """重算指定品种的反转信号，存入 state.instrument_reversal_signals。
     使用 realtime_backtest_buffers（1秒采样）而非 instrument_price_buffers（30秒bar），
     使反转信号能在秒级响应，与回测的高频数据口径一致。
+    支持 cooldown_bars：方向翻转后 N 个 bar 内压制信号为 neutral。
     """
     from backend.strategies.reversal import calc_reversal
     with state.cache_lock:
@@ -183,7 +205,26 @@ def _recompute_reversal_signals(inst_ids: list[str]):
             min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
             if len(buf) >= min_len:
                 try:
-                    state.instrument_reversal_signals[iid] = calc_reversal(buf, params)
+                    raw = calc_reversal(buf, params)
+                    if raw:
+                        sig = raw["signal"]
+                        cooldown = state.instrument_reversal_cooldown.get(iid, 0)
+                        last_active = state.instrument_reversal_last_active.get(iid, "neutral")
+
+                        final_sig, new_cooldown, updated_last = _apply_signal_cooldown(
+                            sig, last_active, cooldown, params.cooldown_bars
+                        )
+
+                        if final_sig != sig:
+                            raw["originalSignal"] = sig
+                        raw["signal"] = final_sig
+                        state.instrument_reversal_cooldown[iid] = new_cooldown
+                        if updated_last:
+                            state.instrument_reversal_last_active[iid] = sig
+
+                        state.instrument_reversal_signals[iid] = raw
+                    else:
+                        state.instrument_reversal_signals[iid] = None
                 except Exception as e:
                     log.error(f"[_recompute_reversal_signals] {iid} error: {e}")
                     state.instrument_reversal_signals[iid] = None

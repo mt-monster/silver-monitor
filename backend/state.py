@@ -65,6 +65,14 @@ class AppState:
     # 预计算的反转信号：instrument_id → {"signal": str, "score": float, "rsi": float, ...} | None
     instrument_reversal_signals: dict = field(default_factory=dict)
 
+    # 动量策略 cooldown 状态
+    instrument_momentum_cooldown: dict = field(default_factory=dict)  # iid -> int(剩余bar)
+    instrument_momentum_last_active: dict = field(default_factory=dict)  # iid -> str(上次非neutral信号)
+
+    # 反转策略 cooldown 状态
+    instrument_reversal_cooldown: dict = field(default_factory=dict)
+    instrument_reversal_last_active: dict = field(default_factory=dict)
+
     # SSE 客户端队列集合：set[queue.SimpleQueue]
     sse_queues: set = field(default_factory=set)
     sse_lock: threading.Lock = field(default_factory=threading.Lock)

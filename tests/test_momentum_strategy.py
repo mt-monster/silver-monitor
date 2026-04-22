@@ -5,6 +5,7 @@ import unittest
 
 from backend.strategies.momentum import (
     MomentumParams,
+    _apply_signal_cooldown,
     _fuse_with_bb,
     bollinger_at,
     calc_momentum,
@@ -191,6 +192,109 @@ class CalcMomentumWithBBTestCase(unittest.TestCase):
         self.assertIsNotNone(with_bb)
         self.assertIn(no_bb["signal"], ("strong_buy", "buy"))
         self.assertIn(with_bb["signal"], ("strong_buy", "buy", "neutral"))
+
+
+class SignalCooldownTestCase(unittest.TestCase):
+    """测试实时信号 cooldown 逻辑。"""
+
+    def test_neutral_to_buy_triggers_cooldown(self):
+        sig, cd, updated = _apply_signal_cooldown("buy", "neutral", 0, 2)
+        self.assertEqual(sig, "buy")
+        self.assertEqual(cd, 2)
+        self.assertTrue(updated)
+
+    def test_sustained_buy_during_cooldown(self):
+        sig, cd, updated = _apply_signal_cooldown("buy", "buy", 2, 2)
+        self.assertEqual(sig, "buy")
+        self.assertEqual(cd, 1)
+        self.assertTrue(updated)
+
+    def test_strong_buy_same_direction_during_cooldown(self):
+        sig, cd, updated = _apply_signal_cooldown("strong_buy", "buy", 2, 2)
+        self.assertEqual(sig, "strong_buy")
+        self.assertEqual(cd, 1)
+        self.assertTrue(updated)
+
+    def test_reversal_during_cooldown_suppressed(self):
+        sig, cd, updated = _apply_signal_cooldown("sell", "buy", 2, 2)
+        self.assertEqual(sig, "neutral")
+        self.assertEqual(cd, 1)
+        self.assertFalse(updated)
+
+    def test_neutral_after_buy_during_cooldown_allowed(self):
+        sig, cd, updated = _apply_signal_cooldown("neutral", "buy", 2, 2)
+        self.assertEqual(sig, "neutral")
+        self.assertEqual(cd, 1)
+        self.assertFalse(updated)
+
+    def test_cooldown_expires_then_reverse_allowed(self):
+        sig, cd, updated = _apply_signal_cooldown("sell", "buy", 0, 2)
+        self.assertEqual(sig, "sell")
+        self.assertEqual(cd, 2)
+        self.assertTrue(updated)
+
+    def test_continuous_neutral_no_cooldown(self):
+        sig, cd, updated = _apply_signal_cooldown("neutral", "neutral", 0, 2)
+        self.assertEqual(sig, "neutral")
+        self.assertEqual(cd, 0)
+        self.assertFalse(updated)
+
+    def test_cooldown_counts_down_each_bar(self):
+        _, cd1, _ = _apply_signal_cooldown("buy", "buy", 3, 2)
+        self.assertEqual(cd1, 2)
+        _, cd2, _ = _apply_signal_cooldown("buy", "buy", 2, 2)
+        self.assertEqual(cd2, 1)
+        _, cd3, _ = _apply_signal_cooldown("buy", "buy", 1, 2)
+        self.assertEqual(cd3, 0)
+
+
+class VolatilityFilterTestCase(unittest.TestCase):
+    """测试波动率过滤逻辑。"""
+
+    def test_high_volatility_signal_preserved(self):
+        base = 10000.0
+        # 50 根 bar，每根波动约 0.5%，CV 足够高
+        vals = [base + i * 50.0 + (i % 3) * 30.0 for i in range(50)]
+        info = calc_momentum(vals, MomentumParams(
+            spread_entry=0.001, slope_entry=0.001,
+            min_volatility_pct=0.02, bb_period=10
+        ))
+        self.assertIsNotNone(info)
+        self.assertIn("volatilityPct", info)
+        self.assertGreater(info["volatilityPct"], 0.02)
+        self.assertIn(info["signal"], ("buy", "strong_buy"))
+
+    def test_low_volatility_signal_suppressed(self):
+        base = 10000.0
+        # 前 40 根横盘，后 10 根急涨：能产生 strong_buy 但整体 CV 很低（约 0.25%）
+        vals = [base] * 40 + [base + i * 10 for i in range(1, 11)]
+
+        # 无过滤时应产生 strong_buy
+        info_no_filter = calc_momentum(vals, MomentumParams(
+            spread_entry=0.001, slope_entry=0.001,
+            min_volatility_pct=0.0, bb_period=10
+        ))
+        self.assertIsNotNone(info_no_filter)
+        self.assertIn(info_no_filter["signal"], ("buy", "strong_buy"))
+
+        # 开启波动率过滤后应被降级为 neutral
+        info_filtered = calc_momentum(vals, MomentumParams(
+            spread_entry=0.001, slope_entry=0.001,
+            min_volatility_pct=0.30, bb_period=10
+        ))
+        self.assertIsNotNone(info_filtered)
+        self.assertIn("volatilityPct", info_filtered)
+        self.assertLess(info_filtered["volatilityPct"], 0.30)
+        self.assertEqual(info_filtered["signal"], "neutral")
+
+    def test_volatility_filter_disabled_by_default(self):
+        base = 10000.0
+        vals = [base + i * 0.01 for i in range(50)]
+        info = calc_momentum(vals, MomentumParams(
+            spread_entry=0.001, slope_entry=0.001
+        ))
+        self.assertIsNotNone(info)
+        self.assertNotIn("volatilityPct", info)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ class MomentumParams:
     rsi_period: int = 14  # 0 = disabled
     bb_buy_kill: float = 0.3   # buy 信号在 %B 低于此值时被压制为 neutral
     bb_sell_kill: float = 0.7  # sell 信号在 %B 高于此值时被压制为 neutral
+    min_volatility_pct: float = 0.0  # 最小价格波动率(%)。>0 时若近期 CV 低于此值，方向信号降级为 neutral
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -159,6 +160,45 @@ def _fuse_with_rsi(base_signal: str, rsi: float) -> str:
     return sig
 
 
+def _apply_signal_cooldown(signal: str, last_active: str, cooldown: int, cooldown_bars: int) -> tuple[str, int, bool]:
+    """
+    实时信号 cooldown 逻辑：方向翻转后 N 个 bar 内压制信号为 neutral。
+
+    规则：
+    - 趋势持续（buy→buy, buy→strong_buy）：信号正常输出，cooldown 自然衰减
+    - 趋势反转（buy→sell）：cooldown 期间被压制为 neutral
+    - 趋势减弱（buy→neutral）：正常输出 neutral
+    - 新方向信号（neutral→buy/sell）触发 cooldown
+
+    返回: (处理后的信号, 新的 cooldown 值, 是否更新了 last_active)
+    """
+    def _direction(s: str) -> str:
+        if s in ("buy", "strong_buy"):
+            return "long"
+        if s in ("sell", "strong_sell"):
+            return "short"
+        return "flat"
+
+    sig_dir = _direction(signal)
+    last_dir = _direction(last_active)
+
+    new_cooldown = max(0, cooldown - 1)
+    updated_last = False
+
+    # cooldown 期间，只允许同向信号通过；反向信号被压制为 neutral
+    if cooldown > 0 and sig_dir != last_dir and sig_dir != "flat":
+        return "neutral", new_cooldown, updated_last
+
+    # 新的活跃方向信号触发 cooldown（包括 flat→long/short，以及 long↔short）
+    if sig_dir != "flat" and sig_dir != last_dir:
+        new_cooldown = cooldown_bars
+
+    if sig_dir != "flat":
+        updated_last = True
+
+    return signal, new_cooldown, updated_last
+
+
 def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> dict[str, Any] | None:
     """
     输入收盘价序列（与 JS 中 series 的 y 一致）。
@@ -226,6 +266,19 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         if rsi_val is not None:
             signal = _fuse_with_rsi(signal, rsi_val)
 
+    # 波动率过滤：横盘/噪声环境时抑制方向性信号
+    volatility_pct: float | None = None
+    if p.min_volatility_pct > 0.0 and len(vals) >= max(p.bb_period, p.short_p):
+        lookback = max(p.bb_period, p.short_p)
+        recent = vals[-lookback:]
+        avg = sum(recent) / len(recent)
+        if avg > 0:
+            variance = sum((x - avg) ** 2 for x in recent) / len(recent)
+            cv = math.sqrt(variance) / avg * 100.0
+            volatility_pct = cv
+            if cv < p.min_volatility_pct and signal in ("buy", "strong_buy", "sell", "strong_sell"):
+                signal = "neutral"
+
     strength = min(100.0, abs(spread_pct) * p.strength_multiplier)
 
     result: dict[str, Any] = {
@@ -240,4 +293,6 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         result["bb"] = bb_info
     if rsi_val is not None:
         result["rsi"] = rsi_val
+    if volatility_pct is not None:
+        result["volatilityPct"] = round(volatility_pct, 4)
     return result
