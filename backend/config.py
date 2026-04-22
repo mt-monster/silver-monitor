@@ -7,7 +7,7 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "monitor.config.json"
 
 DEFAULT_CONFIG = {
     "server": {"host": "0.0.0.0", "port": 8765},
-    "polling": {"fast_seconds": 3, "slow_seconds": 60},
+    "polling": {"fast_seconds": 1, "slow_seconds": 60},
     "alerts": {
         "tick_jump_threshold": 0.15,
         "tick_jump_thresholds": {

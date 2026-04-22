@@ -466,6 +466,12 @@
       <span class="badge">需先运行系统积累 tick 数据</span>
     </p>
     <div class="strategy-form">
+      <label>扫描来源
+        <select id="scanSourceSelect">
+          <option value="realtime_buffer">实时缓冲区（内存，无需等待数据库）</option>
+          <option value="database">历史数据库（需先积累 tick 数据）</option>
+        </select>
+      </label>
       <label>品种
         <select id="scanSymbolSelect">
           <option value="xag">COMEX 银 (XAG)</option>
@@ -475,8 +481,11 @@
           <option value="btc">BTC</option>
         </select>
       </label>
-      <label>日期
+      <label id="scanDateLabel">日期
         <input type="date" id="scanDateInput">
+      </label>
+      <label>回望分钟
+        <input type="number" id="scanLookbackMin" value="5" min="1" max="60" step="1">
       </label>
       <label>策略
         <select id="scanStrategySelect">
@@ -484,7 +493,7 @@
           <option value="reversal">反转策略</option>
         </select>
       </label>
-      <label>滑动步长(秒)
+      <label id="scanStepLabel">滑动步长(秒)
         <input type="number" id="scanStepSeconds" value="30" min="5" max="300" step="5">
       </label>
       <label>参数网格
@@ -500,6 +509,12 @@
     </div>
     <div class="strategy-error" id="scan5minError" style="display:none"></div>
     <div class="strategy-meta" id="scan5minMeta"></div>
+
+    <!-- Tick 质量指标 -->
+    <div id="scan5minQualityWrap" style="display:none;margin-top:16px">
+      <div class="card-label" style="margin-bottom:8px">📊 Tick 数据质量</div>
+      <div class="metric-grid" id="scan5minQualityGrid"></div>
+    </div>
 
     <!-- 最佳窗口结果 -->
     <div id="scan5minBestResult" style="display:none;margin-top:16px">

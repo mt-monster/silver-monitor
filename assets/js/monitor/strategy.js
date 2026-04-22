@@ -495,6 +495,26 @@
     el("scan5minProgressWrap").style.display = "none";
   }
 
+  function renderTickQuality(q) {
+    const wrap = el("scan5minQualityWrap");
+    const grid = el("scan5minQualityGrid");
+    if (!q) { wrap.style.display = "none"; return; }
+    wrap.style.display = "block";
+    const qualityColor = {
+      excellent: "#3fb950", good: "#58a6ff", sparse: "#d29922", insufficient: "#f85149"
+    };
+    const cells = [
+      ["数据点数", q.tickCount],
+      ["平均间隔(s)", q.avgIntervalSec != null ? q.avgIntervalSec : "—"],
+      ["CV (波动率)", q.cv != null ? q.cv + "%" : "—"],
+      ["价格变化", q.priceChangePct != null ? q.priceChangePct + "%" : "—"],
+      ["数据质量", `<span style="color:${qualityColor[q.dataQuality] || '#8b949e'}">${q.dataQuality}</span>`],
+    ];
+    grid.innerHTML = cells.map(
+      ([label, val]) => `<div class="metric-card"><div class="label">${label}</div><div class="value">${val}</div></div>`
+    ).join("");
+  }
+
   function renderScanBestResult(data) {
     const best = data.best_window;
     if (!best) {
@@ -542,21 +562,32 @@
     }).join("");
   }
 
+  function onScanSourceChange() {
+    const source = el("scanSourceSelect").value;
+    const dateLabel = el("scanDateLabel");
+    const stepLabel = el("scanStepLabel");
+    if (source === "realtime_buffer") {
+      dateLabel.style.display = "none";
+      stepLabel.style.display = "none";
+    } else {
+      dateLabel.style.display = "";
+      stepLabel.style.display = "";
+    }
+  }
+
   async function runScan5min() {
     showScanError("");
     const btn = el("runScan5minBtn");
     btn.disabled = true;
     el("scan5minBestResult").style.display = "none";
     el("scan5minTopWrap").style.display = "none";
+    el("scan5minQualityWrap").style.display = "none";
     el("scan5minMeta").textContent = "";
 
+    const source = el("scanSourceSelect").value;
     const instId = el("scanSymbolSelect").value;
-    const dateStr = el("scanDateInput").value;
     const strategy = el("scanStrategySelect").value;
-    const stepSeconds = Number(el("scanStepSeconds").value);
     const gridMode = el("scanParamGrid").value;
-
-    if (!dateStr) { showScanError("请选择日期"); btn.disabled = false; return; }
 
     let paramGrid = null;
     if (gridMode === "light") {
@@ -568,40 +599,66 @@
 
     try {
       Monitor.apiBase = Monitor.getApiBase();
-      const body = {
-        instrument_id: instId,
-        date: dateStr,
-        strategy: strategy,
-        step_seconds: stepSeconds,
-        param_grid: paramGrid,
-        save_results: true,
-      };
+      let payload;
 
-      // 由于扫描可能很慢，使用 EventSource 或轮询不太方便；这里直接 POST
-      // 后端 scan_5min_windows 是同步的，所以前端需要等待
-      el("scan5minProgressWrap").style.display = "block";
-      updateScanProgress(0, 100);
-
-      const resp = await fetch(`${Monitor.apiBase}/api/backtest/scan-5min`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      hideScanProgress();
-      const payload = await resp.json();
-      if (!resp.ok || !payload.ok) {
-        let msg = payload.error || "扫描失败";
-        if (payload.message) msg = payload.message;
-        if (payload.available_dates && payload.available_dates.length) {
-          msg += "\n\n有数据的日期: " + payload.available_dates.slice(0, 5).join(", ");
+      if (source === "realtime_buffer") {
+        const lookback = Number(el("scanLookbackMin").value);
+        const body = {
+          instrument_id: instId,
+          strategy: strategy,
+          lookback_minutes: lookback,
+          param_grid: paramGrid,
+        };
+        const resp = await fetch(`${Monitor.apiBase}/api/backtest/scan-5min/realtime`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        payload = await resp.json();
+        if (!resp.ok || !payload.ok) {
+          throw new Error(payload.message || payload.error || "实时扫描失败");
         }
-        throw new Error(msg);
+        const minStr = payload.window_ms ? Math.round(payload.window_ms / 60000) + "min" : "?";
+        el("scan5minMeta").textContent =
+          `${payload.instrument_id} | 实时缓冲区 | 回望 ${minStr} | 扫描 ${payload.scanned_windows}/${payload.total_windows} 窗口 | 耗时 ${payload.scan_time_sec}s`;
+      } else {
+        const dateStr = el("scanDateInput").value;
+        const stepSeconds = Number(el("scanStepSeconds").value);
+        if (!dateStr) { showScanError("请选择日期"); btn.disabled = false; return; }
+
+        const body = {
+          instrument_id: instId,
+          date: dateStr,
+          strategy: strategy,
+          step_seconds: stepSeconds,
+          param_grid: paramGrid,
+          save_results: true,
+        };
+
+        el("scan5minProgressWrap").style.display = "block";
+        updateScanProgress(0, 100);
+
+        const resp = await fetch(`${Monitor.apiBase}/api/backtest/scan-5min`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        hideScanProgress();
+        payload = await resp.json();
+        if (!resp.ok || !payload.ok) {
+          let msg = payload.message || payload.error || "扫描失败";
+          if (payload.available_dates && payload.available_dates.length) {
+            msg += "\n\n有数据的日期: " + payload.available_dates.slice(0, 5).join(", ");
+          }
+          throw new Error(msg);
+        }
+
+        el("scan5minMeta").textContent =
+          `${payload.instrument_id} | ${payload.date_str} | 扫描 ${payload.scanned_windows}/${payload.total_windows} 个窗口 | 耗时 ${payload.scan_time_sec}s`;
       }
 
-      el("scan5minMeta").textContent =
-        `${payload.instrument_id} | ${payload.date_str} | 扫描 ${payload.scanned_windows}/${payload.total_windows} 个窗口 | 耗时 ${payload.scan_time_sec}s`;
-
+      renderTickQuality(payload.tick_quality);
       renderScanBestResult(payload);
       renderScanTopWindows(payload.top_windows);
     } catch (err) {
@@ -614,6 +671,11 @@
 
   async function loadScanBest() {
     showScanError("");
+    const source = el("scanSourceSelect").value;
+    if (source === "realtime_buffer") {
+      showScanError("实时缓冲区模式不支持加载历史最佳，请直接点击开始扫描");
+      return;
+    }
     const instId = el("scanSymbolSelect").value;
     const dateStr = el("scanDateInput").value;
     if (!dateStr) { showScanError("请选择日期"); return; }
@@ -626,7 +688,6 @@
         throw new Error(payload.error || payload.message || "无历史数据");
       }
       const r = payload.result || {};
-      // 组装成和 scan 输出一样的格式
       const mockPayload = {
         instrument_id: instId,
         date_str: dateStr,
@@ -659,6 +720,8 @@
     el("scanDateInput").value = getTodayDate();
     el("runScan5minBtn").addEventListener("click", runScan5min);
     el("loadScanBestBtn").addEventListener("click", loadScanBest);
+    el("scanSourceSelect").addEventListener("change", onScanSourceChange);
+    onScanSourceChange();
   }
 
   init();

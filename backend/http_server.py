@@ -62,6 +62,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/backtest/scan-5min":
             self._handle_scan_5min()
             return
+        if path == "/api/backtest/scan-5min/realtime":
+            self._handle_scan_5min_realtime()
+            return
         if path == "/api/admin/clear-cache":
             self._handle_admin_clear_cache()
             return

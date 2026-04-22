@@ -267,7 +267,9 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
             signal = _fuse_with_rsi(signal, rsi_val)
 
     # 波动率过滤：横盘/噪声环境时抑制方向性信号
+    # 自适应阈值：根据近期 CV 动态调整，低波动时逐步放开
     volatility_pct: float | None = None
+    adaptive_vol_threshold: float | None = None
     if p.min_volatility_pct > 0.0 and len(vals) >= max(p.bb_period, p.short_p):
         lookback = max(p.bb_period, p.short_p)
         recent = vals[-lookback:]
@@ -276,7 +278,16 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
             variance = sum((x - avg) ** 2 for x in recent) / len(recent)
             cv = math.sqrt(variance) / avg * 100.0
             volatility_pct = cv
-            if cv < p.min_volatility_pct and signal in ("buy", "strong_buy", "sell", "strong_sell"):
+            # 自适应阈值逻辑
+            if cv < 0.005:
+                adaptive_vol_threshold = 0.0  # 超超低波动：完全放开
+            elif cv < 0.015:
+                adaptive_vol_threshold = cv * 0.3  # 超低波动：极宽松
+            elif cv < 0.03:
+                adaptive_vol_threshold = cv * 0.6  # 低波动：宽松
+            else:
+                adaptive_vol_threshold = p.min_volatility_pct  # 正常波动：使用配置值
+            if cv < adaptive_vol_threshold and signal in ("buy", "strong_buy", "sell", "strong_sell"):
                 signal = "neutral"
 
     strength = min(100.0, abs(spread_pct) * p.strength_multiplier)
@@ -295,4 +306,6 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         result["rsi"] = rsi_val
     if volatility_pct is not None:
         result["volatilityPct"] = round(volatility_pct, 4)
+    if adaptive_vol_threshold is not None:
+        result["adaptiveVolThreshold"] = round(adaptive_vol_threshold, 4)
     return result
