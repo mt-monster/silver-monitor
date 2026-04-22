@@ -457,6 +457,83 @@
       </table>
     </div>
   </div>
+
+  <!-- ══ 5分钟 Tick 窗口扫描 ══ -->
+  <div class="card strategy-panel" style="margin-top:16px" id="scan5minPanel">
+    <div class="card-label">5分钟 Tick 窗口扫描</div>
+    <p class="strategy-meta">
+      对某一天的所有 tick 数据，以滑动窗口生成所有可能的 5 分钟片段并回测，找出最佳绩效的时间窗口和参数。
+      <span class="badge">需先运行系统积累 tick 数据</span>
+    </p>
+    <div class="strategy-form">
+      <label>品种
+        <select id="scanSymbolSelect">
+          <option value="xag">COMEX 银 (XAG)</option>
+          <option value="ag0">沪银 (AG0)</option>
+          <option value="xau">COMEX 金 (XAU)</option>
+          <option value="au0">沪金 (AU0)</option>
+          <option value="btc">BTC</option>
+        </select>
+      </label>
+      <label>日期
+        <input type="date" id="scanDateInput">
+      </label>
+      <label>策略
+        <select id="scanStrategySelect">
+          <option value="momentum">动量策略</option>
+          <option value="reversal">反转策略</option>
+        </select>
+      </label>
+      <label>滑动步长(秒)
+        <input type="number" id="scanStepSeconds" value="30" min="5" max="300" step="5">
+      </label>
+      <label>参数网格
+        <select id="scanParamGrid">
+          <option value="light">轻量（spread×slope 各4档 = 16组合）</option>
+          <option value="none">关闭（只用默认参数）</option>
+        </select>
+      </label>
+    </div>
+    <div class="strategy-actions">
+      <button type="button" class="btn-primary" id="runScan5minBtn">开始扫描</button>
+      <button type="button" class="btn-secondary" id="loadScanBestBtn">加载历史最佳</button>
+    </div>
+    <div class="strategy-error" id="scan5minError" style="display:none"></div>
+    <div class="strategy-meta" id="scan5minMeta"></div>
+
+    <!-- 最佳窗口结果 -->
+    <div id="scan5minBestResult" style="display:none;margin-top:16px">
+      <div class="card-label" style="margin-bottom:8px">🏆 最佳 5 分钟窗口</div>
+      <div class="metric-grid" id="scan5minBestGrid"></div>
+      <div class="strategy-form" style="margin-top:12px">
+        <label>最佳时间段
+          <input type="text" id="scanBestTimeRange" readonly style="background:var(--bg2)">
+        </label>
+        <label>最佳参数
+          <input type="text" id="scanBestParams" readonly style="background:var(--bg2)">
+        </label>
+      </div>
+    </div>
+
+    <!-- Top 窗口表格 -->
+    <div class="trades-wrap" id="scan5minTopWrap" style="display:none;margin-top:16px">
+      <div class="card-label" style="margin-bottom:8px">Top 10 窗口排名</div>
+      <table>
+        <thead>
+          <tr><th>排名</th><th>时间段</th><th>总收益%</th><th>最大回撤%</th><th>夏普</th><th>回合</th><th>综合分</th></tr>
+        </thead>
+        <tbody id="scan5minTopBody"></tbody>
+      </table>
+    </div>
+
+    <!-- 进度条 -->
+    <div id="scan5minProgressWrap" style="display:none;margin-top:12px">
+      <div style="background:var(--bg2);border-radius:4px;height:20px;overflow:hidden">
+        <div id="scan5minProgressBar" style="background:#58a6ff;height:100%;width:0%;transition:width .3s;text-align:center;line-height:20px;font-size:12px;color:#fff"></div>
+      </div>
+      <div class="strategy-meta" id="scan5minProgressText" style="margin-top:4px"></div>
+    </div>
+  </div>
 </div>
 
 <script src="assets/js/monitor/core.js"></script>

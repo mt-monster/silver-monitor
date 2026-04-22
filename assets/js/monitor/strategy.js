@@ -468,6 +468,184 @@
     set("cooldownBars", d.cooldown_bars != null ? d.cooldown_bars : 0);
   }
 
+  // ── 5分钟 Tick 窗口扫描 ─────────────────────────────────────────────
+  function getTodayDate() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function showScanError(msg) {
+    const box = el("scan5minError");
+    if (!msg) { box.style.display = "none"; box.textContent = ""; return; }
+    box.style.display = "block";
+    box.textContent = msg;
+  }
+
+  function updateScanProgress(current, total) {
+    const wrap = el("scan5minProgressWrap");
+    const bar = el("scan5minProgressBar");
+    const txt = el("scan5minProgressText");
+    wrap.style.display = "block";
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    bar.style.width = pct + "%";
+    bar.textContent = pct + "%";
+    txt.textContent = `扫描中... ${current} / ${total} 个窗口`;
+  }
+
+  function hideScanProgress() {
+    el("scan5minProgressWrap").style.display = "none";
+  }
+
+  function renderScanBestResult(data) {
+    const best = data.best_window;
+    if (!best) {
+      el("scan5minBestResult").style.display = "none";
+      return;
+    }
+    el("scan5minBestResult").style.display = "block";
+    const m = best.best_metrics || {};
+    const cells = [
+      ["时间段", `${best.start_time} ~ ${best.end_time}`],
+      ["总收益率 %", m.totalReturnPct != null ? m.totalReturnPct : "—"],
+      ["最大回撤 %", m.maxDrawdownPct != null ? m.maxDrawdownPct : "—"],
+      ["夏普比率", m.sharpeRatio != null ? m.sharpeRatio : "—"],
+      ["完整回合", m.roundTripCount != null ? m.roundTripCount : "—"],
+      ["胜率 %", m.winRatePct != null ? m.winRatePct : "—"],
+      ["tick点数", best.tick_count || "—"],
+    ];
+    el("scan5minBestGrid").innerHTML = cells.map(
+      ([label, val]) => `<div class="metric-card"><div class="label">${label}</div><div class="value">${val}</div></div>`
+    ).join("");
+    el("scanBestTimeRange").value = `${best.start_time} ~ ${best.end_time}`;
+    const p = best.best_params || {};
+    el("scanBestParams").value = `spread=${p.spread_entry}, slope=${p.slope_entry}, short=${p.short_p}, long=${p.long_p}`;
+  }
+
+  function renderScanTopWindows(topWindows) {
+    const wrap = el("scan5minTopWrap");
+    const body = el("scan5minTopBody");
+    if (!topWindows || !topWindows.length) {
+      wrap.style.display = "none";
+      return;
+    }
+    wrap.style.display = "block";
+    body.innerHTML = topWindows.map((w, i) => {
+      const m = w.best_metrics || {};
+      return `<tr>
+        <td>${i + 1}</td>
+        <td>${w.start_time}~${w.end_time}</td>
+        <td>${m.totalReturnPct != null ? m.totalReturnPct : "—"}</td>
+        <td>${m.maxDrawdownPct != null ? m.maxDrawdownPct : "—"}</td>
+        <td>${m.sharpeRatio != null ? m.sharpeRatio : "—"}</td>
+        <td>${m.roundTripCount != null ? m.roundTripCount : "—"}</td>
+        <td>${w.score != null ? w.score.toFixed(2) : "—"}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  async function runScan5min() {
+    showScanError("");
+    const btn = el("runScan5minBtn");
+    btn.disabled = true;
+    el("scan5minBestResult").style.display = "none";
+    el("scan5minTopWrap").style.display = "none";
+    el("scan5minMeta").textContent = "";
+
+    const instId = el("scanSymbolSelect").value;
+    const dateStr = el("scanDateInput").value;
+    const strategy = el("scanStrategySelect").value;
+    const stepSeconds = Number(el("scanStepSeconds").value);
+    const gridMode = el("scanParamGrid").value;
+
+    if (!dateStr) { showScanError("请选择日期"); btn.disabled = false; return; }
+
+    let paramGrid = null;
+    if (gridMode === "light") {
+      paramGrid = {
+        spread_entry: [0.01, 0.02, 0.03, 0.05],
+        slope_entry: [0.005, 0.01, 0.015, 0.02],
+      };
+    }
+
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const body = {
+        instrument_id: instId,
+        date: dateStr,
+        strategy: strategy,
+        step_seconds: stepSeconds,
+        param_grid: paramGrid,
+        save_results: true,
+      };
+
+      // 由于扫描可能很慢，使用 EventSource 或轮询不太方便；这里直接 POST
+      // 后端 scan_5min_windows 是同步的，所以前端需要等待
+      el("scan5minProgressWrap").style.display = "block";
+      updateScanProgress(0, 100);
+
+      const resp = await fetch(`${Monitor.apiBase}/api/backtest/scan-5min`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      hideScanProgress();
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) {
+        let msg = payload.error || "扫描失败";
+        if (payload.message) msg = payload.message;
+        if (payload.available_dates && payload.available_dates.length) {
+          msg += "\n\n有数据的日期: " + payload.available_dates.slice(0, 5).join(", ");
+        }
+        throw new Error(msg);
+      }
+
+      el("scan5minMeta").textContent =
+        `${payload.instrument_id} | ${payload.date_str} | 扫描 ${payload.scanned_windows}/${payload.total_windows} 个窗口 | 耗时 ${payload.scan_time_sec}s`;
+
+      renderScanBestResult(payload);
+      renderScanTopWindows(payload.top_windows);
+    } catch (err) {
+      hideScanProgress();
+      showScanError(err.message || String(err));
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function loadScanBest() {
+    showScanError("");
+    const instId = el("scanSymbolSelect").value;
+    const dateStr = el("scanDateInput").value;
+    if (!dateStr) { showScanError("请选择日期"); return; }
+
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const resp = await fetch(`${Monitor.apiBase}/api/backtest/scan-5min/best?instrument_id=${instId}&date=${dateStr}`);
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) {
+        throw new Error(payload.error || payload.message || "无历史数据");
+      }
+      const r = payload.result || {};
+      // 组装成和 scan 输出一样的格式
+      const mockPayload = {
+        instrument_id: instId,
+        date_str: dateStr,
+        best_window: {
+          start_time: r.best_window_start_ms ? new Date(r.best_window_start_ms).toTimeString().slice(0, 8) : "—",
+          end_time: r.best_window_end_ms ? new Date(r.best_window_end_ms).toTimeString().slice(0, 8) : "—",
+          best_params: r.best_params || {},
+          best_metrics: r.best_metrics || {},
+        },
+        top_windows: (r.all_windows || []).slice(0, 10),
+      };
+      el("scan5minMeta").textContent = `${instId} | ${dateStr} | 从数据库加载`;
+      renderScanBestResult(mockPayload);
+      renderScanTopWindows(mockPayload.top_windows);
+    } catch (err) {
+      showScanError(err.message || String(err));
+    }
+  }
+
   async function init() {
     await populateSymbols();
     applyMomentumFormFromConfig();
@@ -476,6 +654,11 @@
     el("runWalkForwardBtn").addEventListener("click", runWalkForward);
     el("runGridSearchBtn").addEventListener("click", runGridSearch);
     el("dataSourceSelect").addEventListener("change", onDataSourceChange);
+
+    // 5min scan init
+    el("scanDateInput").value = getTodayDate();
+    el("runScan5minBtn").addEventListener("click", runScan5min);
+    el("loadScanBestBtn").addEventListener("click", loadScanBest);
   }
 
   init();

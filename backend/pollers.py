@@ -657,6 +657,9 @@ class SlowDataPoller(threading.Thread):
             log.error(f"Slow poll error: {exc}")
 
 
+# 跟踪每个品种最后持久化到 SQLite 的价格和时间戳，避免写入重复 tick
+_last_persisted_tick: dict[str, tuple[int, float]] = {}
+
 # ── 通用商品全品类轮询 ─────────────────────────────────────────────
 
 # 已由 FastDataPoller 处理的品种（避免重复获取）
@@ -756,6 +759,7 @@ def _buffer_precious_prices():
     """将贵金属/BTC 最新价格按时间窗口（BAR_WINDOW_MS）采样到 instrument_price_buffers。
     同一时间窗口内覆写末条（取最新价），跨窗口时追加新 bar，最多保留 200 条。
     同时写入 realtime_backtest_buffers（每秒一个点，最多300点≈5分钟），用于短周期回测。
+    并将 tick 数据持久化到 SQLite，供历史 5 分钟窗口扫描使用。
     """
     mapping = {
         "ag0": state.silver_cache,
@@ -765,6 +769,8 @@ def _buffer_precious_prices():
         "btc": state.btc_cache,
     }
     now_ms = int(time.time() * 1000)
+    now_date = datetime.now(CST).strftime("%Y-%m-%d")
+    tick_batch = []
     with state.cache_lock:
         for inst_id, cache in mapping.items():
             d = cache.get("data")
@@ -791,6 +797,20 @@ def _buffer_precious_prices():
             if len(rt_buf) > 300:
                 rt_buf = rt_buf[-300:]
             state.realtime_backtest_buffers[inst_id] = rt_buf
+
+            # ── 持久化 tick 到 SQLite（只在价格变化时写入，避免重复）
+            last_ts, last_px = _last_persisted_tick.get(inst_id, (0, 0.0))
+            if px != last_px or ts_ms - last_ts > 60_000:  # 价格变化 或 超过 1 分钟强制写入
+                tick_batch.append((inst_id, ts_ms, px, now_date))
+                _last_persisted_tick[inst_id] = (ts_ms, px)
+
+    # 批量写入 SQLite（在锁外执行，避免阻塞）
+    if tick_batch:
+        try:
+            from backend.tick_storage import save_ticks_batch
+            save_ticks_batch(tick_batch)
+        except Exception as exc:
+            log.debug(f"[tick_storage] batch write error: {exc}")
 
 
 def sync_precious_to_instrument_caches():

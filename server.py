@@ -56,6 +56,10 @@ def main():
     commodity_poller = CommodityPoller(interval=FAST_POLL)
     commodity_poller.start()
 
+    # 启动定时调度器（每日 04:00 自动扫描昨天 5min 窗口）
+    from backend.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
+
     try:
         server = ThreadedHttpServer((SERVER_HOST, PORT), MonitorRequestHandler)
         log.info(f"Server started: http://127.0.0.1:{PORT}/")
@@ -80,6 +84,7 @@ def main():
         fast_poller.join(timeout=3)
         slow_poller.join(timeout=3)
         commodity_poller.join(timeout=3)
+        stop_scheduler()
         server.shutdown()
         # Logout iFinD session if active
         try:

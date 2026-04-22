@@ -59,6 +59,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         if path == "/api/backtest/walk-forward":
             self._handle_walk_forward()
             return
+        if path == "/api/backtest/scan-5min":
+            self._handle_scan_5min()
+            return
         if path == "/api/admin/clear-cache":
             self._handle_admin_clear_cache()
             return
@@ -704,6 +707,101 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
     def _api_instruments_registry(self):
         return {"registry": registry_to_json(), "categories": CATEGORIES}
 
+    def _api_scan_5min_dates(self):
+        """GET /api/backtest/scan-5min/dates?instrument_id=xag"""
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        inst_id = (qs.get("instrument_id") or ["xag"])[0]
+        from backend.backtest_runner import get_available_scan_dates
+        dates = get_available_scan_dates(inst_id)
+        from backend.tick_storage import get_available_dates
+        tick_dates = get_available_dates(inst_id)
+        return {"ok": True, "instrument_id": inst_id, "scan_dates": dates, "tick_dates": tick_dates}
+
+    def _api_scan_5min_best(self):
+        """GET /api/backtest/scan-5min/best?instrument_id=xag&date=2026-04-21"""
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        inst_id = (qs.get("instrument_id") or ["xag"])[0]
+        date_str = (qs.get("date") or [""])[0]
+        if not date_str:
+            return {"ok": False, "error": "date parameter required"}
+        from backend.backtest_runner import get_best_window_result
+        result = get_best_window_result(inst_id, date_str)
+        if not result:
+            return {"ok": False, "error": "no_data", "message": f"{inst_id} {date_str} 无扫描结果"}
+        return {"ok": True, "instrument_id": inst_id, "date": date_str, "result": result}
+
+    def _api_scan_5min_windows(self):
+        """GET /api/backtest/scan-5min/windows?instrument_id=xag&date=2026-04-21"""
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        inst_id = (qs.get("instrument_id") or ["xag"])[0]
+        date_str = (qs.get("date") or [""])[0]
+        if not date_str:
+            return {"ok": False, "error": "date parameter required"}
+        from backend.tick_storage import get_window_results
+        results = get_window_results(inst_id, date_str)
+        return {"ok": True, "instrument_id": inst_id, "date": date_str, "count": len(results), "results": results}
+
+    def _handle_scan_5min(self):
+        """POST /api/backtest/scan-5min — 5分钟 tick 窗口滑动扫描回测。
+        请求体: {"instrument_id": "xag", "date": "2026-04-21", "strategy": "momentum",
+                 "step_seconds": 30, "param_grid": {...}, "base_params": {...}}
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            inst_id = (body.get("instrument_id") or "xag").strip().lower()
+            date_str = (body.get("date") or "").strip()
+            strategy = (body.get("strategy") or "momentum").strip().lower()
+            step_seconds = int(body.get("step_seconds", 30))
+            param_grid = body.get("param_grid")
+            base_params = body.get("base_params")
+            save_results = body.get("save_results", True)
+
+            if not date_str:
+                raise ValueError("date parameter is required (YYYY-MM-DD)")
+            if strategy not in ("momentum", "reversal"):
+                raise ValueError("strategy must be momentum or reversal")
+
+            bt_cfg = backtest_config_from_body(body)
+
+            from backend.backtest_runner import scan_5min_windows
+            result = scan_5min_windows(
+                instrument_id=inst_id,
+                date_str=date_str,
+                strategy=strategy,
+                base_params=base_params,
+                param_grid=param_grid,
+                step_ms=step_seconds * 1000,
+                bt_cfg=bt_cfg,
+                save_results=save_results,
+            )
+
+            if "error" in result:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, **result}, ensure_ascii=False).encode("utf-8"))
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, **result}, ensure_ascii=False).encode("utf-8"))
+        except ValueError as exc:
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            log.warning(f"[scan-5min] {exc}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
     _GET_ROUTES = {
         "/api/comex": _api_comex,
         "/api/huyin": _api_huyin,
@@ -720,6 +818,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         "/api/instruments/registry": _api_instruments_registry,
         "/api/sources": _api_sources,
         "/api/admin/source-config": _api_source_config,
+        "/api/backtest/scan-5min/dates": _api_scan_5min_dates,
+        "/api/backtest/scan-5min/best": _api_scan_5min_best,
+        "/api/backtest/scan-5min/windows": _api_scan_5min_windows,
     }
 
     # ── GET API dispatch ─────────────────────────────────────────────
