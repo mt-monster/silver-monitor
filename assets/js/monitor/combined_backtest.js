@@ -1,14 +1,10 @@
--- Active: 1776860992409@@127.0.0.1@3306
-// backtest.js — Silver Monitor 回测绩效卡片渲染与API
+// combined_backtest.js — 组合策略回测绩效卡片渲染
 (function () {
   const Monitor = window.Monitor = window.Monitor || {};
 
-  // 内部状态
   let _isFetching = false;
-  let _refreshTimer = null;
-  let _charts = {};
+  let _chart = null;
 
-  // ── 工具函数 ──
   function _el(id) { return document.getElementById(id); }
 
   function _fmtPct(v) {
@@ -27,7 +23,6 @@
     return v > 0 ? 'up' : v < 0 ? 'down' : '';
   }
 
-  // ── 构建指标行 HTML ──
   function _buildMetricRows(data) {
     if (!data || !data.metrics) {
       return '<div class="bt-empty">暂无数据</div>';
@@ -87,8 +82,7 @@
     return meta.dataSource === 'realtime' ? `Long-Only · 实时${meta.lookbackMinutes}min` : 'Long-Only · 实时';
   }
 
-  // ── Chart.js 权益曲线绘制 ──
-  function _initOrUpdateChart(canvasId, equityData, label, color) {
+  function _initOrUpdateChart(canvasId, equityData) {
     const ctx = _el(canvasId);
     if (!ctx) return;
 
@@ -96,22 +90,22 @@
       return { x: p.t, y: p.equity };
     });
 
-    if (_charts[canvasId]) {
-      _charts[canvasId].data.datasets[0].data = points;
-      _charts[canvasId].data.datasets[0].label = label;
-      _charts[canvasId].data.datasets[0].borderColor = color;
-      _charts[canvasId].update('none');
+    const color = 'rgb(210,153,34)';
+
+    if (_chart) {
+      _chart.data.datasets[0].data = points;
+      _chart.update('none');
       return;
     }
 
-    _charts[canvasId] = new Chart(ctx, {
+    _chart = new Chart(ctx, {
       type: 'line',
       data: {
         datasets: [{
-          label: label,
+          label: '组合权益',
           data: points,
           borderColor: color,
-          backgroundColor: color.replace(')', ',0.1)').replace('rgb', 'rgba'),
+          backgroundColor: 'rgba(210,153,34,0.1)',
           borderWidth: 1.5,
           pointRadius: 0,
           pointHoverRadius: 3,
@@ -159,14 +153,18 @@
     });
   }
 
-  // ── API 请求 ──
-  function _fetchBacktest(symbol, strategy) {
+  function _fetchCombinedBacktest(symbol) {
     const body = {
       symbol: symbol,
-      strategy: strategy,
+      strategy: 'combined',
       mode: 'long_only',
       data_source: 'realtime',
       lookback_minutes: 5,
+      combined_params: {
+        enable_mtf: true,
+        require_strong_to_trade: true,
+        conflict_preference: 'reversal',
+      },
     };
 
     return fetch(Monitor.apiBase + '/api/backtest', {
@@ -191,71 +189,38 @@
     });
   }
 
-  // ── 主加载入口 ──
-  Monitor.fetchAndRenderBacktest = function () {
-    const symbolSel = _el('backtestSymbol');
+  Monitor.fetchAndRenderCombinedBacktest = function () {
+    const symbolSel = _el('cmbBacktestSymbol');
     const symbol = symbolSel ? symbolSel.value : 'comex';
 
     if (_isFetching) return;
     _isFetching = true;
 
-    // 显示加载中
-    const momEl = _el('btMomentumMetrics');
-    const revEl = _el('btReversalMetrics');
-    if (momEl) momEl.innerHTML = '<div class="bt-loading">加载中...</div>';
-    if (revEl) revEl.innerHTML = '<div class="bt-loading">加载中...</div>';
+    const metricsEl = _el('cmbBacktestMetrics');
+    if (metricsEl) metricsEl.innerHTML = '<div class="bt-loading">加载中...</div>';
 
-    Promise.all([
-      _fetchBacktest(symbol, 'momentum'),
-      _fetchBacktest(symbol, 'reversal'),
-    ]).then(function (results) {
+    _fetchCombinedBacktest(symbol).then(function (data) {
       _isFetching = false;
-      const momentum = results[0];
-      const reversal = results[1];
 
-      // 渲染动量指标
-      if (momEl) {
-        momEl.innerHTML = momentum ? _buildMetricRows(momentum) : '<div class="bt-error">数据不足或回测失败</div>';
+      if (metricsEl) {
+        metricsEl.innerHTML = data ? _buildMetricRows(data) : '<div class="bt-error">数据不足或回测失败</div>';
       }
-      const momMeta = _el('btMomentumMeta');
-      if (momMeta) momMeta.textContent = _buildMetaLabel(momentum);
-      const momFoot = _el('btMomentumFoot');
-      if (momFoot) momFoot.innerHTML = _buildFoot(momentum);
+      const metaEl = _el('cmbBacktestMeta');
+      if (metaEl) metaEl.textContent = _buildMetaLabel(data);
+      const footEl = _el('cmbBacktestFoot');
+      if (footEl) footEl.innerHTML = _buildFoot(data);
 
-      // 渲染反转指标
-      if (revEl) {
-        revEl.innerHTML = reversal ? _buildMetricRows(reversal) : '<div class="bt-error">数据不足或回测失败</div>';
-      }
-      const revMeta = _el('btReversalMeta');
-      if (revMeta) revMeta.textContent = _buildMetaLabel(reversal);
-      const revFoot = _el('btReversalFoot');
-      if (revFoot) revFoot.innerHTML = _buildFoot(reversal);
-
-      // 绘制权益曲线
-      _initOrUpdateChart('btMomentumChart', momentum ? momentum.equity : [], '动量权益', 'rgb(57,210,192)');
-      _initOrUpdateChart('btReversalChart', reversal ? reversal.equity : [], '反转权益', 'rgb(163,113,247)');
+      _initOrUpdateChart('cmbBacktestChart', data ? data.equity : []);
     });
   };
 
-  // ── 初始化绑定 ──
-  Monitor.initBacktestCard = function () {
-    const symbolSel = _el('backtestSymbol');
-    const refreshBtn = _el('backtestRefresh');
+  Monitor.initCombinedBacktestCard = function () {
+    const symbolSel = _el('cmbBacktestSymbol');
+    const refreshBtn = _el('cmbBacktestRefresh');
 
-    if (symbolSel) symbolSel.onchange = Monitor.fetchAndRenderBacktest;
-    if (refreshBtn) refreshBtn.onclick = Monitor.fetchAndRenderBacktest;
+    if (symbolSel) symbolSel.onchange = Monitor.fetchAndRenderCombinedBacktest;
+    if (refreshBtn) refreshBtn.onclick = Monitor.fetchAndRenderCombinedBacktest;
 
-    // 立即加载一次
-    Monitor.fetchAndRenderBacktest();
-
-    // 不设置自动刷新，仅保留手动刷新按钮
-  };
-
-  // 清理定时器
-  Monitor.stopBacktestRefresh = function () {
-    if (_refreshTimer) {
-      clearInterval(_refreshTimer);
-      _refreshTimer = null;
-    }
+    Monitor.fetchAndRenderCombinedBacktest();
   };
 })();

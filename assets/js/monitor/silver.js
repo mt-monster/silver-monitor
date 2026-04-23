@@ -2,10 +2,10 @@
   const Monitor = window.Monitor;
   const { app, charts, constants, el, renderers } = Monitor;
 
-  // ── 初始化回测绩效卡片（由 app.js 在切到 silver tab 时调用）
+  // ── 初始化组合策略回测卡片（由 app.js 在切到 silver tab 时调用）
   Monitor.initBacktestCard = function () {
-    if (typeof Monitor.fetchAndRenderBacktest === 'function' && document.getElementById('backtestCard')) {
-      Monitor.fetchAndRenderBacktest();
+    if (typeof Monitor.fetchAndRenderCombinedBacktest === 'function' && document.getElementById('cmbBacktestWrap')) {
+      Monitor.fetchAndRenderCombinedBacktest();
     }
   };
 

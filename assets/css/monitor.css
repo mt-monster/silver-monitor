@@ -6,9 +6,11 @@
 .backtest-panel-head button{background:var(--bg3);color:var(--text3);border:1px solid var(--border);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;font-family:var(--mono)}
 .backtest-panel-head button:hover{background:var(--border);color:var(--text)}
 .backtest-dual{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.backtest-single{display:grid;grid-template-columns:1fr;gap:12px;max-width:520px;margin:0 auto}
 .backtest-subcard{background:var(--bg0);border:1px solid var(--border);border-radius:8px;padding:12px 14px;position:relative;overflow:hidden}
 .backtest-subcard.momentum{border-top:3px solid var(--cyan)}
 .backtest-subcard.reversal{border-top:3px solid var(--purple)}
+.backtest-subcard.combined{border-top:3px solid #d29922}
 .backtest-subhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .backtest-subtitle{font-size:12px;font-weight:700;color:var(--text)}
 .backtest-submeta{font-size:9px;color:var(--text3);background:var(--bg2);padding:1px 6px;border-radius:4px}

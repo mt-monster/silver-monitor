@@ -32,3 +32,4 @@ env/
 
 # Node (if any)
 node_modules/
+data/
