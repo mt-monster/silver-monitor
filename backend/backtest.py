@@ -824,3 +824,158 @@ def reversal_params_from_body(body: dict, symbol: str | None = None) -> Reversal
         strong_score=float(p.get("strong_score", merged.get("strong_score", 0.8))),
         cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 2))),
     )
+
+
+# ── 组合信号回测（MTF + Combined）──────────────────────────────────
+
+from backend.strategies.mtf import calc_trend_direction, MTFConfig
+from backend.strategies.combined import calc_combined_signal, CombinedSignalParams
+
+
+def run_combined_backtest(
+    bars: list[dict],
+    mom_params: MomentumParams,
+    rev_params: ReversalParams,
+    combined_params: CombinedSignalParams | None = None,
+    mtf_config: MTFConfig | None = None,
+    config: BacktestConfig | None = None,
+) -> dict[str, Any]:
+    """组合信号回测引擎。
+
+    逻辑：
+    1. 逐 bar 计算动量信号和反转信号
+    2. 用足够长的历史子序列计算 MTF 趋势
+    3. 应用组合规则生成最终信号
+    4. 根据最终方向开/平仓（支持 long_only / long_short）
+    5. cooldown_bars 内禁止反向开仓
+    6. 最后强制平仓
+
+    Args:
+        bars: 价格序列，每个元素 {"t": 时间戳, "y": 价格}
+        mom_params: 动量策略参数
+        rev_params: 反转策略参数
+        combined_params: 组合信号参数
+        mtf_config: MTF 趋势参数
+        config: 回测配置
+
+    Returns:
+        包含 equity、trades、metrics 的字典
+    """
+    cfg = config or BacktestConfig()
+    cp = combined_params or CombinedSignalParams()
+    mc = mtf_config or MTFConfig()
+    cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
+
+    equity_curve: list[dict[str, Any]] = []
+    trades: list[dict[str, Any]] = []
+    cash = 1.0
+    shares = 0.0
+    entry_p = 0.0
+    position_long = False
+    position_short = False
+    cooldown_remaining = 0
+
+    prices = [float(b["y"]) for b in bars]
+    min_mtf_len = mc.slow_period_bars + 5
+
+    for i in range(len(bars)):
+        t, price = bars[i]["t"], bars[i]["y"]
+
+        # 计算动量信号（需要 long_p + 2 根）
+        mom_sig = None
+        if i + 1 >= mom_params.long_p + 2:
+            mom_sig = calc_momentum(prices[: i + 1], mom_params)
+
+        # 计算反转信号
+        rev_sig = None
+        min_rev_len = max(rev_params.rsi_period + 1, rev_params.bb_period, rev_params.ema_period) + 2
+        if i + 1 >= min_rev_len:
+            rev_sig = calc_reversal(prices[: i + 1], rev_params)
+
+        # 计算 MTF 趋势（用当前价格序列的子序列模拟 30s bar → 需要足够长）
+        mtf_trend = "sideways"
+        if i + 1 >= min_mtf_len:
+            # 模拟 30s bar：将 1s bars 每 30 根聚合成 1 根
+            agg = []
+            for j in range(0, i + 1, 30):
+                chunk = prices[j: j + 30]
+                if chunk:
+                    agg.append(chunk[-1])  # 取 close
+            if len(agg) >= min_mtf_len:
+                mtf_result = calc_trend_direction(agg, mc)
+                mtf_trend = mtf_result.get("trend", "sideways")
+
+        # 组合信号决策
+        combined = calc_combined_signal(mom_sig, rev_sig, mtf_trend, cp)
+        final_sig = combined.get("signal", "neutral")
+        final_dir = combined.get("direction", "flat")
+
+        # 仓位计算
+        target_long = final_dir == "long"
+        target_short = final_dir == "short"
+
+        eq_before = cash
+        if position_long and price > 0:
+            eq_before += shares * price
+        elif position_short and position_short and price > 0:
+            # short PnL: 初始做空 1.0，价格跌则赚
+            eq_before = cash + (entry_p - price) / entry_p if entry_p > 0 else cash
+
+        if cooldown_remaining > 0:
+            cooldown_remaining -= 1
+        else:
+            # Long-Only / Long-Short 统一处理
+            if cfg.mode == "long_only":
+                if target_long and not position_long and cash > 0 and price > 0:
+                    shares = cash * cost_factor / price
+                    cash = 0.0
+                    position_long = True
+                    cooldown_remaining = max(mom_params.cooldown_bars, rev_params.cooldown_bars)
+                    trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                elif not target_long and position_long and shares > 0 and price > 0:
+                    cash = shares * price * cost_factor
+                    trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                    shares = 0.0
+                    position_long = False
+                    cooldown_remaining = max(mom_params.cooldown_bars, rev_params.cooldown_bars)
+            else:
+                # Long-Short
+                current_pos = 1 if position_long else (-1 if position_short else 0)
+                target_pos = 1 if target_long else (-1 if target_short else 0)
+                if target_pos != current_pos and price > 0:
+                    # 平现有仓
+                    if position_long and shares > 0:
+                        cash = shares * price * cost_factor
+                        trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                        shares = 0.0
+                        position_long = False
+                    elif position_short:
+                        cash = cash + (entry_p - price) / entry_p * cost_factor if entry_p > 0 else cash
+                        trades.append({"action": "cover", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                        position_short = False
+                    # 开新仓
+                    if target_pos == 1:
+                        shares = cash * cost_factor / price
+                        cash = 0.0
+                        position_long = True
+                        trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                    elif target_pos == -1:
+                        entry_p = price
+                        cash = cash * cost_factor
+                        position_short = True
+                        trades.append({"action": "short", "t": t, "price": round(price, 6), "signal": final_sig, "source": combined.get("source", ""), "reason": combined.get("reason", "")})
+                    cooldown_remaining = max(mom_params.cooldown_bars, rev_params.cooldown_bars)
+
+        eq = cash
+        if position_long and price > 0:
+            eq += shares * price
+        elif position_short and entry_p > 0:
+            eq = cash + (entry_p - price) / entry_p
+
+        equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
+
+    metrics = _compute_metrics(equity_curve, trades, bars)
+    metrics["mode"] = cfg.mode
+    cost_str = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" if (cfg.commission_rate > 0 or cfg.slippage_pct > 0) else "不计手续费与滑点；"
+    metrics["note"] = f"组合信号（MTF+动量+反转），{cost_str}"
+    return {"equity": equity_curve, "trades": trades, "metrics": metrics, "combinedParams": cp.__dict__}

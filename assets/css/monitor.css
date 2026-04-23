@@ -255,6 +255,26 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .research-disclaimer{margin-bottom:12px}
 .research-disclaimer code{font-size:10px;color:var(--cyan)}
 
+/* ── Compare Section ── */
+.compare-section{margin-bottom:16px}
+.compare-table-wrap{background:var(--bg1);border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto}
+.compare-table{width:100%;border-collapse:collapse;font-size:12px}
+.compare-table th,.compare-table td{padding:8px 10px;text-align:center;border-bottom:1px solid var(--border)}
+.compare-table th{color:var(--text3);font-weight:600;font-size:11px;background:var(--bg2)}
+.compare-table tr:hover{background:rgba(88,166,255,.06)}
+.compare-table .strategy-momentum{color:#58a6ff;font-weight:600}
+.compare-table .strategy-reversal{color:#3fb950;font-weight:600}
+.compare-table .strategy-combined{color:#d29922;font-weight:600}
+.compare-table .metric-positive{color:var(--green)}
+.compare-table .metric-negative{color:var(--red)}
+.compare-table .metric-neutral{color:var(--text2)}
+
+/* Tab Header */
+.tab-header{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.tab-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text2);padding:5px 12px;border-radius:6px;cursor:pointer;font-family:var(--mono);font-size:11px;transition:all .15s}
+.tab-btn:hover{border-color:var(--blue);color:var(--text)}
+.tab-btn.active{background:var(--blue);border-color:var(--blue);color:var(--bg0)}
+
 /* Gold specific */
 .atr-bar-fill.hujin{background:var(--yellow)}
 .atr-bar-fill.comex-gold{background:var(--orange)}

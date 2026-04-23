@@ -25,6 +25,9 @@
     "alert_poll_ms": 2000,
     "bar_window_ms": 1000
   },
+  "storage": {
+    "tick_retention_days": 2
+  },
   "momentum": {
     "default": {
       "short_p": 5,

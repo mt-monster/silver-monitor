@@ -29,6 +29,7 @@
   <div class="strategy-tabs">
     <button class="strategy-tab active" data-strategy="momentum" onclick="switchStrategy('momentum')">动量策略 (Momentum)</button>
     <button class="strategy-tab" data-strategy="reversal" onclick="switchStrategy('reversal')">反转策略 (Reversal)</button>
+    <button class="strategy-tab" data-strategy="combined" onclick="switchStrategy('combined')">组合策略 (Combined)</button>
   </div>
 
   <!-- ══ 动量策略说明 ══ -->
@@ -397,11 +398,13 @@
 
     <div class="strategy-actions">
       <button type="button" class="btn-primary" id="runBacktestBtn">运行回测</button>
+      <button type="button" class="btn-secondary" id="runCompareBtn" title="同时跑 momentum / reversal / combined 三种策略并对比">🔥 一键对比三种策略</button>
       <button type="button" class="btn-secondary" id="runWalkForwardBtn" title="Walk-Forward 训练/测试分割验证">Walk-Forward</button>
     </div>
     <div class="strategy-error" id="strategyError" style="display:none"></div>
     <div class="strategy-meta" id="strategyMeta"></div>
 
+    <!-- 单次回测结果 -->
     <div class="metric-grid" id="metricGrid" style="display:none"></div>
     <div class="chart-wrap" id="chartWrap" style="display:none">
       <canvas id="equityChart"></canvas>
@@ -414,6 +417,52 @@
         </thead>
         <tbody id="tradesBody"></tbody>
       </table>
+    </div>
+
+    <!-- ══ 三种策略对比结果 ══ -->
+    <div id="compareResultWrap" style="display:none;margin-top:16px">
+      <!-- 回测环境 -->
+      <div class="compare-section">
+        <div class="card-label" style="margin-bottom:10px">📊 回测环境</div>
+        <div class="metric-grid" id="envGrid"></div>
+      </div>
+
+      <!-- 策略绩效对比表格 -->
+      <div class="compare-section">
+        <div class="card-label" style="margin-bottom:10px">📈 各策略绩效对比</div>
+        <div class="compare-table-wrap">
+          <table class="compare-table" id="compareTable">
+            <thead>
+              <tr>
+                <th>策略</th><th>模式</th><th>总收益 %</th><th>最大回撤 %</th>
+                <th>交易次数</th><th>胜率 %</th><th>盈亏比</th><th>平均每笔收益 %</th>
+              </tr>
+            </thead>
+            <tbody id="compareTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 权益曲线（多策略叠加） -->
+      <div class="compare-section">
+        <div class="card-label" style="margin-bottom:10px">📉 权益曲线对比</div>
+        <div class="chart-wrap" id="compareChartWrap" style="height:260px">
+          <canvas id="compareEquityChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 成交明细 Tab -->
+      <div class="compare-section">
+        <div class="tab-header" id="tradeTabHeader"></div>
+        <div class="trades-wrap" id="compareTradesWrap" style="display:none">
+          <table>
+            <thead>
+              <tr><th>策略</th><th>动作</th><th>时间</th><th>价格</th><th>信号</th></tr>
+            </thead>
+            <tbody id="compareTradesBody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -491,6 +540,7 @@
         <select id="scanStrategySelect">
           <option value="momentum">动量策略</option>
           <option value="reversal">反转策略</option>
+          <option value="combined">组合策略</option>
         </select>
       </label>
       <label id="scanStepLabel">滑动步长(秒)
@@ -527,6 +577,9 @@
         <label>最佳参数
           <input type="text" id="scanBestParams" readonly style="background:var(--bg2)">
         </label>
+      </div>
+      <div class="chart-wrap" id="scanChartWrap" style="display:none;margin-top:12px;height:220px">
+        <canvas id="scanEquityChart"></canvas>
       </div>
     </div>
 

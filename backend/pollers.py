@@ -232,6 +232,39 @@ def _recompute_reversal_signals(inst_ids: list[str]):
                 state.instrument_reversal_signals[iid] = None
 
 
+def _recompute_mtf_and_combined(inst_ids: list[str]):
+    """重算 MTF 趋势和组合信号。
+    使用 instrument_price_buffers（30s bar）计算大局趋势，
+    再结合动量/反转信号生成组合决策。
+    """
+    from backend.strategies.mtf import calc_mtf_from_buffer
+    from backend.strategies.combined import calc_combined_signal, CombinedSignalParams
+
+    with state.cache_lock:
+        for iid in inst_ids:
+            buf_30s = state.instrument_price_buffers.get(iid, [])
+            if len(buf_30s) >= 40:
+                try:
+                    mtf = calc_mtf_from_buffer(buf_30s)
+                    state.instrument_mtf_trends[iid] = mtf
+                except Exception as e:
+                    log.error(f"[_recompute_mtf] {iid} error: {e}")
+                    state.instrument_mtf_trends[iid] = None
+            else:
+                state.instrument_mtf_trends[iid] = None
+
+            mom = state.instrument_signals.get(iid)
+            rev = state.instrument_reversal_signals.get(iid)
+            mtf_trend = state.instrument_mtf_trends.get(iid, {}).get("trend", "sideways") if state.instrument_mtf_trends.get(iid) else "sideways"
+
+            try:
+                combined = calc_combined_signal(mom, rev, mtf_trend, CombinedSignalParams())
+                state.instrument_combined_signals[iid] = combined
+            except Exception as e:
+                log.error(f"[_recompute_combined] {iid} error: {e}")
+                state.instrument_combined_signals[iid] = None
+
+
 def _notify_sse(event: str, payload: dict):
     """向所有 SSE 客户端广播事件。"""
     msg = f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
@@ -563,6 +596,7 @@ class FastDataPoller(threading.Thread):
                 _buffer_precious_prices()
                 _recompute_signals(["ag0", "xag", "au0", "xau", "btc"])
                 _recompute_reversal_signals(["ag0", "xag", "au0", "xau", "btc"])
+                _recompute_mtf_and_combined(["ag0", "xag", "au0", "xau", "btc"])
                 rebuild_all_cache()
                 state.data_version += 1
                 _notify_sse("data", _build_sse_snapshot())
@@ -706,6 +740,7 @@ class CommodityPoller(threading.Thread):
                 updated_ids = [inst.id for inst in instruments]
                 _recompute_signals(updated_ids)
                 _recompute_reversal_signals(updated_ids)
+                _recompute_mtf_and_combined(updated_ids)
                 state.data_version += 1
             except Exception as exc:
                 log.error(f"CommodityPoller error: {exc}")
@@ -734,6 +769,8 @@ def _build_sse_snapshot() -> dict:
     # 全品种信号（包含动量信号与反转信号）
     sigs = {}
     rv_sigs = {}
+    mtf_trends = {}
+    combined_sigs = {}
     with state.cache_lock:
         for iid, sig in state.instrument_signals.items():
             if sig:
@@ -741,8 +778,16 @@ def _build_sse_snapshot() -> dict:
         for iid, rsig in state.instrument_reversal_signals.items():
             if rsig:
                 rv_sigs[iid] = rsig
+        for iid, mtf in state.instrument_mtf_trends.items():
+            if mtf:
+                mtf_trends[iid] = mtf
+        for iid, cmb in state.instrument_combined_signals.items():
+            if cmb:
+                combined_sigs[iid] = cmb
     snapshot["signals"] = sigs
     snapshot["reversalSignals"] = rv_sigs
+    snapshot["mtfTrends"] = mtf_trends
+    snapshot["combinedSignals"] = combined_sigs
 
     # 价格序列（供前端与后端使用同一输入，消除 RSI 不一致）
     with state.cache_lock:

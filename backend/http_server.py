@@ -9,7 +9,7 @@ from http.server import SimpleHTTPRequestHandler
 from backend.backtest import (
     BacktestConfig, load_history, momentum_params_from_body, backtest_config_from_body,
     run_momentum_backtest, run_momentum_long_only_backtest, run_grid_search, run_walk_forward,
-    reversal_params_from_body, run_reversal_backtest,
+    reversal_params_from_body, run_reversal_backtest, run_combined_backtest,
 )
 from backend.config import CST, FAST_POLL, RUNTIME_CONFIG, SLOW_POLL, log, reload_runtime_config
 from backend.infoway import infoway_available, infoway_crypto_available
@@ -149,8 +149,8 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             data_source = (body.get("data_source") or "history").strip().lower()
             lookback_minutes = int(body.get("lookback_minutes", 5))
 
-            if strategy not in ("momentum", "reversal"):
-                raise ValueError("strategy must be momentum or reversal")
+            if strategy not in ("momentum", "reversal", "combined"):
+                raise ValueError("strategy must be momentum, reversal or combined")
             if mode not in ("long_only", "long_short"):
                 raise ValueError("mode must be long_only or long_short")
             if data_source not in ("history", "realtime"):
@@ -177,6 +177,12 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             if strategy == "reversal":
                 params = reversal_params_from_body(body, symbol)
                 result = run_reversal_backtest(bars, params, bt_cfg)
+            elif strategy == "combined":
+                from backend.strategies.combined import combined_params_from_body
+                mom_params = momentum_params_from_body(body, symbol)
+                rev_params = reversal_params_from_body(body, symbol)
+                combined_params = combined_params_from_body(body)
+                result = run_combined_backtest(bars, mom_params, rev_params, combined_params, config=bt_cfg)
             else:
                 params = momentum_params_from_body(body, symbol)
                 result = run_momentum_backtest(bars, params, bt_cfg)
@@ -703,6 +709,15 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         if signals:
             data["signals"] = signals
         data["reversalSignals"] = rv_signals
+        data["mtfTrends"] = {}
+        data["combinedSignals"] = {}
+        with state.cache_lock:
+            for iid, mtf in state.instrument_mtf_trends.items():
+                if mtf:
+                    data["mtfTrends"][iid] = mtf
+            for iid, cmb in state.instrument_combined_signals.items():
+                if cmb:
+                    data["combinedSignals"][iid] = cmb
         data["priceBuffers"] = price_bufs
         data["realtimeBacktestBuffers"] = rt_bufs
         return data
@@ -765,8 +780,8 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
 
             if not date_str:
                 raise ValueError("date parameter is required (YYYY-MM-DD)")
-            if strategy not in ("momentum", "reversal"):
-                raise ValueError("strategy must be momentum or reversal")
+            if strategy not in ("momentum", "reversal", "combined"):
+                raise ValueError("strategy must be momentum, reversal or combined")
 
             bt_cfg = backtest_config_from_body(body)
 
@@ -800,6 +815,57 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
         except Exception as exc:
             log.warning(f"[scan-5min] {exc}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_scan_5min_realtime(self):
+        """POST /api/backtest/scan-5min/realtime — 直接从内存缓冲区扫描最近 N 分钟。"""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length)) if length > 0 else {}
+            inst_id = (body.get("instrument_id") or "xag").strip().lower()
+            strategy = (body.get("strategy") or "momentum").strip().lower()
+            lookback_minutes = int(body.get("lookback_minutes", 5))
+            param_grid = body.get("param_grid")
+            base_params = body.get("base_params")
+
+            if strategy not in ("momentum", "reversal", "combined"):
+                raise ValueError("strategy must be momentum, reversal or combined")
+            if lookback_minutes < 1 or lookback_minutes > 60:
+                raise ValueError("lookback_minutes must be between 1 and 60")
+
+            bt_cfg = backtest_config_from_body(body)
+
+            from backend.backtest_runner import scan_5min_from_buffer
+            result = scan_5min_from_buffer(
+                instrument_id=inst_id,
+                strategy=strategy,
+                lookback_minutes=lookback_minutes,
+                base_params=base_params,
+                param_grid=param_grid,
+                bt_cfg=bt_cfg,
+            )
+
+            if "error" in result:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, **result}, ensure_ascii=False).encode("utf-8"))
+                return
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, **result}, ensure_ascii=False).encode("utf-8"))
+        except ValueError as exc:
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+        except Exception as exc:
+            log.warning(f"[scan-5min/realtime] {exc}")
             self.send_response(500)
             self.send_header("Content-Type", "application/json")
             self.end_headers()

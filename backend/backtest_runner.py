@@ -19,6 +19,7 @@ from backend.backtest import (
     BacktestConfig,
     run_momentum_backtest,
     run_reversal_backtest,
+    run_combined_backtest,
 )
 from backend.config import CST, log
 from backend.state import state
@@ -136,6 +137,25 @@ def run_single_window_backtest(
         try:
             if strategy == "momentum":
                 result = _run_momentum_for_window(bars, combo, bt_cfg)
+            elif strategy == "combined":
+                from backend.strategies.combined import CombinedSignalParams
+                mom_p = MomentumParams(
+                    short_p=int(combo.get("short_p", 5)),
+                    long_p=int(combo.get("long_p", 15)),
+                    spread_entry=float(combo.get("spread_entry", 0.03)),
+                    spread_strong=float(combo.get("spread_strong", 0.08)),
+                    slope_entry=float(combo.get("slope_entry", 0.015)),
+                )
+                rev_p = ReversalParams(
+                    rsi_period=int(combo.get("rsi_period", 5)),
+                    deviation_entry=float(combo.get("deviation_entry", 0.15)),
+                )
+                cp = CombinedSignalParams(
+                    enable_mtf=combo.get("enable_mtf", True),
+                    require_strong_to_trade=combo.get("require_strong_to_trade", True),
+                    conflict_preference=combo.get("conflict_preference", "reversal"),
+                )
+                result = run_combined_backtest(bars, mom_p, rev_p, cp, config=bt_cfg)
             else:
                 # reversal 暂用默认参数
                 p = ReversalParams()
@@ -277,6 +297,8 @@ def scan_5min_windows(
             "best_metrics": m,
             "score": score,
             "tick_count": len(window_ticks),
+            "equity": result.get("equity", []),
+            "trades": result.get("trades", []),
         }
         top_windows.append(entry)
 
@@ -475,6 +497,8 @@ def scan_5min_from_buffer(
                 "best_params": result["best_params"],
                 "best_metrics": m,
                 "tick_count": len(ticks),
+                "equity": result.get("equity", []),
+                "trades": result.get("trades", []),
             },
             "top_windows": [],
             "tick_quality": tick_quality,
@@ -506,6 +530,8 @@ def scan_5min_from_buffer(
             "best_metrics": m,
             "score": score,
             "tick_count": len(window_ticks),
+            "equity": result.get("equity", []),
+            "trades": result.get("trades", []),
         }
         top_windows.append(entry)
 

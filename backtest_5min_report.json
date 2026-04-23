@@ -1,0 +1,351 @@
+{
+  "instrument": "xag",
+  "window_start": "2026-04-22 20:16:53",
+  "window_end": "2026-04-22 20:21:53",
+  "bars": 159,
+  "momentum": {
+    "default_rt": {
+      "totalReturnPct": 0.0,
+      "maxDrawdownPct": 0.0,
+      "sellCount": 0,
+      "roundTripCount": 0,
+      "winRatePct": null,
+      "profitFactor": null,
+      "avgTradeReturnPct": null,
+      "avgHoldingBars": null,
+      "rawVolatility": 0.0,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+    },
+    "long_short": {
+      "totalReturnPct": 0.0,
+      "maxDrawdownPct": 0.0,
+      "sellCount": 0,
+      "roundTripCount": 0,
+      "winRatePct": null,
+      "profitFactor": null,
+      "avgTradeReturnPct": null,
+      "avgHoldingBars": null,
+      "rawVolatility": 0.0,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "Long-Short，不计手续费与滑点；年化按首尾时间线性外推；夏普仅供参考。",
+      "mode": "long_short"
+    },
+    "with_cost": {
+      "totalReturnPct": 0.0,
+      "maxDrawdownPct": 0.0,
+      "sellCount": 0,
+      "roundTripCount": 0,
+      "winRatePct": null,
+      "profitFactor": null,
+      "avgTradeReturnPct": null,
+      "avgHoldingBars": null,
+      "rawVolatility": 0.0,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "手续费0.050%/滑点0.020%；回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+    },
+    "top_params": [
+      {
+        "params": {
+          "cooldown_bars": 1,
+          "long_p": 15,
+          "short_p": 5,
+          "slope_entry": 0.005,
+          "spread_entry": 0.01
+        },
+        "metrics": {
+          "totalReturnPct": 0.0077,
+          "maxDrawdownPct": 0.0089,
+          "sellCount": 2,
+          "roundTripCount": 2,
+          "winRatePct": 50.0,
+          "profitFactor": 4.0,
+          "avgTradeReturnPct": 0.0038,
+          "avgHoldingBars": 1.1,
+          "rawVolatility": 0.001,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "long_p": 20,
+          "short_p": 3,
+          "slope_entry": 0.005,
+          "spread_entry": 0.02
+        },
+        "metrics": {
+          "totalReturnPct": 0.0051,
+          "maxDrawdownPct": 0.0,
+          "sellCount": 1,
+          "roundTripCount": 1,
+          "winRatePct": 100.0,
+          "profitFactor": "∞",
+          "avgTradeReturnPct": 0.0051,
+          "avgHoldingBars": 0.5,
+          "rawVolatility": 0.0004,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 2,
+          "long_p": 15,
+          "short_p": 5,
+          "slope_entry": 0.005,
+          "spread_entry": 0.01
+        },
+        "metrics": {
+          "totalReturnPct": 0.0051,
+          "maxDrawdownPct": 0.0102,
+          "sellCount": 2,
+          "roundTripCount": 2,
+          "winRatePct": 50.0,
+          "profitFactor": 2.33,
+          "avgTradeReturnPct": 0.0026,
+          "avgHoldingBars": 2.1,
+          "rawVolatility": 0.0011,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 1,
+          "long_p": 20,
+          "short_p": 3,
+          "slope_entry": 0.005,
+          "spread_entry": 0.02
+        },
+        "metrics": {
+          "totalReturnPct": 0.0038,
+          "maxDrawdownPct": 0.0013,
+          "sellCount": 1,
+          "roundTripCount": 1,
+          "winRatePct": 100.0,
+          "profitFactor": "∞",
+          "avgTradeReturnPct": 0.0038,
+          "avgHoldingBars": 1.6,
+          "rawVolatility": 0.0004,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "long_p": 15,
+          "short_p": 5,
+          "slope_entry": 0.005,
+          "spread_entry": 0.01
+        },
+        "metrics": {
+          "totalReturnPct": 0.0013,
+          "maxDrawdownPct": 0.0089,
+          "sellCount": 2,
+          "roundTripCount": 2,
+          "winRatePct": 50.0,
+          "profitFactor": 1.14,
+          "avgTradeReturnPct": 0.0006,
+          "avgHoldingBars": 0.8,
+          "rawVolatility": 0.0009,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      }
+    ]
+  },
+  "reversal": {
+    "default_rt": {
+      "totalReturnPct": -0.0064,
+      "maxDrawdownPct": 0.0397,
+      "sellCount": 8,
+      "roundTripCount": 8,
+      "winRatePct": 50.0,
+      "profitFactor": 0.83,
+      "avgTradeReturnPct": -0.0008,
+      "avgHoldingBars": 2.7,
+      "rawVolatility": 0.0025,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+    },
+    "long_short": {
+      "totalReturnPct": 0.0244,
+      "maxDrawdownPct": 0.0398,
+      "sellCount": 13,
+      "roundTripCount": 13,
+      "winRatePct": 69.23,
+      "profitFactor": 1.63,
+      "avgTradeReturnPct": 0.0019,
+      "avgHoldingBars": 2.4,
+      "rawVolatility": 0.0031,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "反转 Long-Short，不计手续费与滑点；年化按首尾时间线性外推；夏普仅供参考。",
+      "mode": "long_short"
+    },
+    "with_cost": {
+      "totalReturnPct": -1.1205,
+      "maxDrawdownPct": 1.1205,
+      "sellCount": 8,
+      "roundTripCount": 8,
+      "winRatePct": 50.0,
+      "profitFactor": 0.83,
+      "avgTradeReturnPct": -0.0008,
+      "avgHoldingBars": 2.7,
+      "rawVolatility": 0.0213,
+      "annualizedReturnPct": null,
+      "sharpeRatio": null,
+      "bars": 159,
+      "note": "手续费0.050%/滑点0.020%；回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+    },
+    "top_params": [
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "deviation_entry": 0.1,
+          "min_score": 0.3,
+          "rsi_overbought": 65,
+          "rsi_oversold": 35,
+          "rsi_period": 8
+        },
+        "metrics": {
+          "totalReturnPct": 0.0218,
+          "maxDrawdownPct": 0.0205,
+          "sellCount": 6,
+          "roundTripCount": 6,
+          "winRatePct": 83.33,
+          "profitFactor": 2.55,
+          "avgTradeReturnPct": 0.0036,
+          "avgHoldingBars": 1.9,
+          "rawVolatility": 0.0019,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "deviation_entry": 0.1,
+          "min_score": 0.3,
+          "rsi_overbought": 70,
+          "rsi_oversold": 35,
+          "rsi_period": 8
+        },
+        "metrics": {
+          "totalReturnPct": 0.0218,
+          "maxDrawdownPct": 0.0205,
+          "sellCount": 6,
+          "roundTripCount": 6,
+          "winRatePct": 83.33,
+          "profitFactor": 2.55,
+          "avgTradeReturnPct": 0.0036,
+          "avgHoldingBars": 1.9,
+          "rawVolatility": 0.0019,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "deviation_entry": 0.1,
+          "min_score": 0.3,
+          "rsi_overbought": 75,
+          "rsi_oversold": 35,
+          "rsi_period": 8
+        },
+        "metrics": {
+          "totalReturnPct": 0.0218,
+          "maxDrawdownPct": 0.0205,
+          "sellCount": 6,
+          "roundTripCount": 6,
+          "winRatePct": 83.33,
+          "profitFactor": 2.55,
+          "avgTradeReturnPct": 0.0036,
+          "avgHoldingBars": 1.9,
+          "rawVolatility": 0.0019,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "deviation_entry": 0.15,
+          "min_score": 0.3,
+          "rsi_overbought": 65,
+          "rsi_oversold": 35,
+          "rsi_period": 8
+        },
+        "metrics": {
+          "totalReturnPct": 0.0218,
+          "maxDrawdownPct": 0.0205,
+          "sellCount": 6,
+          "roundTripCount": 6,
+          "winRatePct": 83.33,
+          "profitFactor": 2.55,
+          "avgTradeReturnPct": 0.0036,
+          "avgHoldingBars": 1.9,
+          "rawVolatility": 0.0019,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      },
+      {
+        "params": {
+          "cooldown_bars": 0,
+          "deviation_entry": 0.15,
+          "min_score": 0.3,
+          "rsi_overbought": 70,
+          "rsi_oversold": 35,
+          "rsi_period": 8
+        },
+        "metrics": {
+          "totalReturnPct": 0.0218,
+          "maxDrawdownPct": 0.0205,
+          "sellCount": 6,
+          "roundTripCount": 6,
+          "winRatePct": 83.33,
+          "profitFactor": 2.55,
+          "avgTradeReturnPct": 0.0036,
+          "avgHoldingBars": 1.9,
+          "rawVolatility": 0.0019,
+          "annualizedReturnPct": null,
+          "sharpeRatio": null,
+          "bars": 159,
+          "note": "回测周期过短（<1周），年化收益与年化夏普不具参考意义，展示总收益率、最大回撤、胜率、盈亏比与每笔平均收益。"
+        }
+      }
+    ]
+  }
+}

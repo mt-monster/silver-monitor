@@ -17,6 +17,9 @@ DEFAULT_CONFIG = {
         "max_history": 200,
     },
     "frontend": {"default_api_host": "127.0.0.1", "fallback_port": 8765, "poll_ms": 1000, "alert_poll_ms": 2000, "bar_window_ms": 30000},
+    "storage": {
+        "tick_retention_days": 7,
+    },
     "momentum": {
         "short_p": 5,
         "long_p": 20,
@@ -74,6 +77,7 @@ SLOW_POLL = int(RUNTIME_CONFIG["polling"]["slow_seconds"])
 DEFAULT_TICK_JUMP_THRESHOLD = float(RUNTIME_CONFIG["alerts"]["tick_jump_threshold"])
 DEFAULT_TICK_JUMP_THRESHOLDS: dict = RUNTIME_CONFIG["alerts"].get("tick_jump_thresholds", {})
 DEFAULT_ALERT_MAX_HISTORY = int(RUNTIME_CONFIG["alerts"]["max_history"])
+TICK_RETENTION_DAYS = int(RUNTIME_CONFIG.get("storage", {}).get("tick_retention_days", 7))
 FRONTEND_DEFAULT_API_HOST = RUNTIME_CONFIG["frontend"]["default_api_host"]
 FRONTEND_FALLBACK_PORT = int(RUNTIME_CONFIG["frontend"]["fallback_port"])
 FRONTEND_POLL_MS = int(RUNTIME_CONFIG["frontend"]["poll_ms"])

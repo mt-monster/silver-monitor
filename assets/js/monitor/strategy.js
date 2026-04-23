@@ -5,6 +5,8 @@
 (function () {
   const Monitor = window.Monitor;
   let equityChart = null;
+  let scanEquityChart = null;
+  let compareChart = null;
   let currentStrategy = "momentum";
 
   // 暴露给 HTML onclick
@@ -16,15 +18,18 @@
     // 策略说明面板
     el("momentumExplain").style.display = name === "momentum" ? "" : "none";
     el("reversalExplain").style.display = name === "reversal" ? "" : "none";
-    // 参数面板
-    el("momentumParams").style.display = name === "momentum" ? "" : "none";
-    el("reversalParams").style.display = name === "reversal" ? "" : "none";
+    // 参数面板：combined 同时显示动量+反转参数
+    el("momentumParams").style.display = (name === "momentum" || name === "combined") ? "" : "none";
+    el("reversalParams").style.display = (name === "reversal" || name === "combined") ? "" : "none";
     // Grid Search 只对动量策略可用
     el("gsPanel").style.display = name === "momentum" ? "" : "none";
     // 标题
-    el("backtestLabel").textContent = name === "momentum"
-      ? "动量策略回测（EMA + Boll + RSI 融合信号）"
-      : "反转策略回测（RSI + Boll%B + EMA偏离 加权评分）";
+    const labels = {
+      momentum: "动量策略回测（EMA + Boll + RSI 融合信号）",
+      reversal: "反转策略回测（RSI + Boll%B + EMA偏离 加权评分）",
+      combined: "组合策略回测（MTF趋势过滤 + 动量/反转融合决策）",
+    };
+    el("backtestLabel").textContent = labels[name] || labels.momentum;
     // 清除结果
     el("metricGrid").style.display = "none";
     el("chartWrap").style.display = "none";
@@ -50,12 +55,11 @@
   const _ALIASES = { huyin: "ag0", comex: "xag", hujin: "au0", comex_gold: "xau" };
   const _REVERSE_ALIASES = { ag0: "huyin", xag: "comex", au0: "hujin", xau: "comex_gold" };
 
-  function collectBody() {
+  function buildBaseBody() {
     const rawSym = el("symbolSelect").value;
     const symbol = _ALIASES[rawSym] || rawSym;
     const dataSource = el("dataSourceSelect").value;
     var base = {
-      strategy: currentStrategy,
       symbol: symbol,
       mode: el("modeSelect").value,
       commission_rate: Number(el("commissionRate").value) / 100,
@@ -65,37 +69,75 @@
     if (dataSource === "realtime") {
       base.lookback_minutes = Number(el("lookbackMinutes").value);
     }
-    if (currentStrategy === "reversal") {
-      base.params = {
-        rsi_period: Number(el("rvRsiPeriod").value),
-        rsi_oversold: Number(el("rvRsiOversold").value),
-        rsi_overbought: Number(el("rvRsiOverbought").value),
-        rsi_extreme_low: Number(el("rvRsiExtremeLow").value),
-        rsi_extreme_high: Number(el("rvRsiExtremeHigh").value),
-        bb_period: Number(el("rvBbPeriod").value),
-        bb_mult: Number(el("rvBbMult").value),
-        pctb_low: Number(el("rvPctbLow").value),
-        pctb_high: Number(el("rvPctbHigh").value),
-        ema_period: Number(el("rvEmaPeriod").value),
-        deviation_entry: Number(el("rvDeviationEntry").value),
-        deviation_strong: Number(el("rvDeviationStrong").value),
-        min_score: Number(el("rvMinScore").value),
-        strong_score: Number(el("rvStrongScore").value),
-        cooldown_bars: Number(el("rvCooldownBars").value),
+    return base;
+  }
+
+  function buildStrategyParams(strategy) {
+    if (strategy === "reversal") {
+      return {
+        params: {
+          rsi_period: Number(el("rvRsiPeriod").value),
+          rsi_oversold: Number(el("rvRsiOversold").value),
+          rsi_overbought: Number(el("rvRsiOverbought").value),
+          rsi_extreme_low: Number(el("rvRsiExtremeLow").value),
+          rsi_extreme_high: Number(el("rvRsiExtremeHigh").value),
+          bb_period: Number(el("rvBbPeriod").value),
+          bb_mult: Number(el("rvBbMult").value),
+          pctb_low: Number(el("rvPctbLow").value),
+          pctb_high: Number(el("rvPctbHigh").value),
+          ema_period: Number(el("rvEmaPeriod").value),
+          deviation_entry: Number(el("rvDeviationEntry").value),
+          deviation_strong: Number(el("rvDeviationStrong").value),
+          min_score: Number(el("rvMinScore").value),
+          strong_score: Number(el("rvStrongScore").value),
+          cooldown_bars: Number(el("rvCooldownBars").value),
+        },
+      };
+    } else if (strategy === "combined") {
+      return {
+        params: {
+          short_p: Number(el("shortP").value),
+          long_p: Number(el("longP").value),
+          spread_entry: Number(el("spreadEntry").value),
+          spread_strong: Number(el("spreadStrong").value),
+          slope_entry: Number(el("slopeEntry").value),
+          bb_period: Number(el("bbPeriod").value),
+          bb_mult: Number(el("bbMult").value),
+          rsi_period: Number(el("rsiPeriod").value),
+          cooldown_bars: Number(el("cooldownBars").value),
+          rv_rsi_period: Number(el("rvRsiPeriod").value),
+          rv_rsi_oversold: Number(el("rvRsiOversold").value),
+          rv_rsi_overbought: Number(el("rvRsiOverbought").value),
+          rv_deviation_entry: Number(el("rvDeviationEntry").value),
+          rv_min_score: Number(el("rvMinScore").value),
+        },
+        combined_params: {
+          enable_mtf: true,
+          require_strong_to_trade: true,
+          conflict_preference: "reversal",
+        },
       };
     } else {
-      base.params = {
-        short_p: Number(el("shortP").value),
-        long_p: Number(el("longP").value),
-        spread_entry: Number(el("spreadEntry").value),
-        spread_strong: Number(el("spreadStrong").value),
-        slope_entry: Number(el("slopeEntry").value),
-        bb_period: Number(el("bbPeriod").value),
-        bb_mult: Number(el("bbMult").value),
-        rsi_period: Number(el("rsiPeriod").value),
-        cooldown_bars: Number(el("cooldownBars").value),
+      return {
+        params: {
+          short_p: Number(el("shortP").value),
+          long_p: Number(el("longP").value),
+          spread_entry: Number(el("spreadEntry").value),
+          spread_strong: Number(el("spreadStrong").value),
+          slope_entry: Number(el("slopeEntry").value),
+          bb_period: Number(el("bbPeriod").value),
+          bb_mult: Number(el("bbMult").value),
+          rsi_period: Number(el("rsiPeriod").value),
+          cooldown_bars: Number(el("cooldownBars").value),
+        },
       };
     }
+  }
+
+  function collectBody() {
+    var base = buildBaseBody();
+    base.strategy = currentStrategy;
+    Object.assign(base, buildStrategyParams(currentStrategy));
     return base;
   }
 
@@ -468,6 +510,259 @@
     set("cooldownBars", d.cooldown_bars != null ? d.cooldown_bars : 0);
   }
 
+  // ── 一键对比三种策略 ────────────────────────────────────────────────
+  async function runCompareAll() {
+    showError("");
+    const btn = el("runCompareBtn");
+    btn.disabled = true;
+
+    // 隐藏单次回测结果
+    el("metricGrid").style.display = "none";
+    el("chartWrap").style.display = "none";
+    el("tradesWrap").style.display = "none";
+    el("compareResultWrap").style.display = "none";
+    el("strategyMeta").textContent = "";
+
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const base = buildBaseBody();
+      const strategies = ["momentum", "reversal", "combined"];
+
+      const requests = strategies.map(async (s) => {
+        const body = { ...base, strategy: s, ...buildStrategyParams(s) };
+        try {
+          const resp = await fetch(`${Monitor.apiBase}/api/backtest`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const payload = await resp.json();
+          if (!resp.ok || !payload.ok) {
+            return { strategy: s, error: payload.error || `HTTP ${resp.status}` };
+          }
+          return {
+            strategy: s,
+            meta: payload.meta,
+            metrics: payload.metrics,
+            equity: payload.equity,
+            trades: payload.trades,
+          };
+        } catch (err) {
+          return { strategy: s, error: err.message || String(err) };
+        }
+      });
+
+      const results = await Promise.all(requests);
+      const successes = results.filter((r) => !r.error);
+      const failures = results.filter((r) => r.error);
+
+      if (failures.length) {
+        showError("部分策略回测失败: " + failures.map((f) => `${f.strategy}: ${f.error}`).join("; "));
+      }
+      if (!successes.length) {
+        throw new Error("所有策略回测均失败");
+      }
+
+      el("compareResultWrap").style.display = "block";
+      renderEnvBlock(successes[0].meta, successes[0].equity);
+      renderCompareTable(successes);
+      renderCompareChart(successes);
+      renderCompareTrades(successes);
+
+      const firstMeta = successes[0].meta;
+      el("strategyMeta").textContent =
+        `对比模式 | ${firstMeta.symbol || ""} | ${firstMeta.dataSource || ""} | ${firstMeta.from || ""} → ${firstMeta.to || ""} | ${firstMeta.bars || 0} bars`;
+    } catch (err) {
+      showError(err.message || String(err));
+      el("compareResultWrap").style.display = "none";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderEnvBlock(meta, equity) {
+    const prices = equity ? equity.map((r) => r.price).filter((p) => p != null) : [];
+    const minPrice = prices.length ? Math.min(...prices) : null;
+    const maxPrice = prices.length ? Math.max(...prices) : null;
+    const priceChangePct =
+      minPrice != null && maxPrice != null && minPrice > 0
+        ? (((maxPrice - minPrice) / minPrice) * 100).toFixed(2)
+        : null;
+
+    const cells = [
+      ["时间窗口", meta.from && meta.to ? `${meta.from} ~ ${meta.to}` : "—"],
+      ["数据频率", meta.interval ? `${meta.interval} | ${meta.bars || 0} bars` : "—"],
+      ["价格区间", minPrice != null ? `${minPrice.toFixed(3)} → ${maxPrice.toFixed(3)}` : "—"],
+      ["区间波动", priceChangePct != null ? `${priceChangePct}%` : "—"],
+      ["品种", meta.symbol || "—"],
+      ["模式", meta.mode || "—"],
+    ];
+    el("envGrid").innerHTML = cells
+      .map(
+        ([label, val]) =>
+          `<div class="metric-card"><div class="label">${label}</div><div class="value">${val}</div></div>`
+      )
+      .join("");
+  }
+
+  function renderCompareTable(results) {
+    const tbody = el("compareTableBody");
+    const strategyNames = { momentum: "动量", reversal: "反转", combined: "组合" };
+    const modeNames = { long_only: "Long-Only", long_short: "Long-Short" };
+
+    tbody.innerHTML = results
+      .map((r) => {
+        const m = r.metrics || {};
+        const strategyClass = `strategy-${r.strategy}`;
+        const retCls =
+          m.totalReturnPct > 0 ? "metric-positive" : m.totalReturnPct < 0 ? "metric-negative" : "metric-neutral";
+        const winCls = (m.winRatePct || 0) >= 50 ? "metric-positive" : "metric-neutral";
+        return `<tr>
+        <td class="${strategyClass}">${strategyNames[r.strategy] || r.strategy}</td>
+        <td>${modeNames[r.meta.mode] || r.meta.mode}</td>
+        <td class="${retCls}">${m.totalReturnPct != null ? m.totalReturnPct : "—"}</td>
+        <td>${m.maxDrawdownPct != null ? m.maxDrawdownPct : "—"}</td>
+        <td>${m.roundTripCount != null ? m.roundTripCount : "—"}</td>
+        <td class="${winCls}">${m.winRatePct != null ? m.winRatePct : "—"}</td>
+        <td>${m.profitFactor != null ? m.profitFactor : "—"}</td>
+        <td>${m.avgTradeReturnPct != null ? m.avgTradeReturnPct : "—"}</td>
+      </tr>`;
+      })
+      .join("");
+  }
+
+  function renderCompareChart(results) {
+    const wrap = el("compareChartWrap");
+    wrap.style.display = "block";
+    const ctx = el("compareEquityChart");
+    if (compareChart) compareChart.destroy();
+
+    const colors = {
+      momentum: { border: "#58a6ff", bg: "rgba(88,166,255,.08)" },
+      reversal: { border: "#3fb950", bg: "rgba(63,185,80,.08)" },
+      combined: { border: "#d29922", bg: "rgba(210,153,34,.08)" },
+    };
+    const strategyNames = { momentum: "动量", reversal: "反转", combined: "组合" };
+
+    const datasets = results.map((r) => {
+      const c = colors[r.strategy] || colors.momentum;
+      return {
+        label: strategyNames[r.strategy] || r.strategy,
+        data: (r.equity || []).map((row) => ({ x: row.t, y: row.equity })),
+        borderColor: c.border,
+        backgroundColor: c.bg,
+        fill: false,
+        tension: 0.1,
+        pointRadius: 0,
+        borderWidth: 2,
+      };
+    });
+
+    const timeUnit = results[0] && results[0].meta && results[0].meta.dataSource === "realtime" ? "minute" : "day";
+    compareChart = new Chart(ctx, {
+      type: "line",
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        parsing: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: {
+            type: "time",
+            time: { unit: timeUnit, displayFormats: { minute: "HH:mm:ss", day: "MM-dd" } },
+            grid: { color: "rgba(48,54,61,.6)" },
+            ticks: { color: "#8b949e", maxRotation: 0, maxTicksLimit: 6 },
+          },
+          y: {
+            grid: { color: "rgba(48,54,61,.6)" },
+            ticks: { color: "#8b949e" },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: "#c9d1d9" } },
+          tooltip: {
+            callbacks: {
+              title: function (context) {
+                const d = new Date(context[0].parsed.x);
+                return d.toLocaleTimeString("zh-CN", { hour12: false });
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderCompareTrades(results) {
+    const wrap = el("compareTradesWrap");
+    const tbody = el("compareTradesBody");
+    const strategyNames = { momentum: "动量", reversal: "反转", combined: "组合" };
+
+    const allTrades = [];
+    results.forEach((r) => {
+      const sLabel = strategyNames[r.strategy] || r.strategy;
+      (r.trades || []).forEach((tr) => {
+        const dt = tr.t ? new Date(tr.t).toLocaleTimeString("zh-CN", { hour12: false }) : "—";
+        allTrades.push({ ...tr, strategy: sLabel, strategyKey: r.strategy, timeStr: dt });
+      });
+    });
+
+    if (!allTrades.length) {
+      wrap.style.display = "none";
+      el("tradeTabHeader").innerHTML = "";
+      return;
+    }
+    wrap.style.display = "block";
+
+    const tabHeader = el("tradeTabHeader");
+    const strategies = [...new Set(allTrades.map((t) => t.strategyKey))];
+    let activeTab = "all";
+
+    function renderTradesTable(filterStrategy) {
+      const filtered =
+        filterStrategy === "all" ? allTrades : allTrades.filter((t) => t.strategyKey === filterStrategy);
+      tbody.innerHTML = filtered
+        .map((tr) => {
+          const cls =
+            { momentum: "strategy-momentum", reversal: "strategy-reversal", combined: "strategy-combined" }[
+              tr.strategyKey
+            ] || "";
+          return `<tr>
+          <td class="${cls}">${tr.strategy}</td>
+          <td class="${tr.action}">${tr.action}</td>
+          <td>${tr.timeStr}</td>
+          <td>${tr.price}</td>
+          <td>${tr.signal}</td>
+        </tr>`;
+        })
+        .join("");
+    }
+
+    const tabs = [{ key: "all", label: "全部" }];
+    strategies.forEach((s) => {
+      tabs.push({ key: s, label: strategyNames[s] || s });
+    });
+
+    tabHeader.innerHTML = tabs
+      .map((t) => {
+        const active = t.key === activeTab ? "active" : "";
+        const count = t.key === "all" ? allTrades.length : allTrades.filter((x) => x.strategyKey === t.key).length;
+        return `<button class="tab-btn ${active}" data-tab="${t.key}">${t.label} (${count})</button>`;
+      })
+      .join("");
+
+    tabHeader.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", function () {
+        tabHeader.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+        this.classList.add("active");
+        renderTradesTable(this.dataset.tab);
+      });
+    });
+
+    renderTradesTable("all");
+  }
+
   // ── 5分钟 Tick 窗口扫描 ─────────────────────────────────────────────
   function getTodayDate() {
     return new Date().toISOString().slice(0, 10);
@@ -515,6 +810,61 @@
     ).join("");
   }
 
+  function renderScanChart(equity) {
+    const wrap = el("scanChartWrap");
+    if (!equity || equity.length < 2) {
+      wrap.style.display = "none";
+      return;
+    }
+    wrap.style.display = "block";
+    const ctx = el("scanEquityChart");
+    if (scanEquityChart) scanEquityChart.destroy();
+    scanEquityChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        datasets: [
+          {
+            label: "权益曲线",
+            data: equity.map(row => ({ x: row.t, y: row.equity })),
+            borderColor: "#58a6ff",
+            backgroundColor: "rgba(88,166,255,.1)",
+            fill: true,
+            tension: 0.1,
+            pointRadius: 0,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        parsing: false,
+        scales: {
+          x: {
+            type: "time",
+            time: { unit: "minute", displayFormats: { minute: "HH:mm:ss" } },
+            grid: { color: "rgba(48,54,61,.6)" },
+            ticks: { color: "#8b949e", maxRotation: 0, maxTicksLimit: 6 },
+          },
+          y: {
+            grid: { color: "rgba(48,54,61,.6)" },
+            ticks: { color: "#8b949e" },
+          },
+        },
+        plugins: {
+          legend: { labels: { color: "#c9d1d9" } },
+          tooltip: {
+            callbacks: {
+              title: function(context) {
+                const d = new Date(context[0].parsed.x);
+                return d.toLocaleTimeString("zh-CN", { hour12: false });
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
   function renderScanBestResult(data) {
     const best = data.best_window;
     if (!best) {
@@ -538,6 +888,7 @@
     el("scanBestTimeRange").value = `${best.start_time} ~ ${best.end_time}`;
     const p = best.best_params || {};
     el("scanBestParams").value = `spread=${p.spread_entry}, slope=${p.slope_entry}, short=${p.short_p}, long=${p.long_p}`;
+    renderScanChart(best.equity);
   }
 
   function renderScanTopWindows(topWindows) {
@@ -712,6 +1063,7 @@
     applyMomentumFormFromConfig();
     applySymbolDefaults();
     el("runBacktestBtn").addEventListener("click", runBacktest);
+    el("runCompareBtn").addEventListener("click", runCompareAll);
     el("runWalkForwardBtn").addEventListener("click", runWalkForward);
     el("runGridSearchBtn").addEventListener("click", runGridSearch);
     el("dataSourceSelect").addEventListener("change", onDataSourceChange);

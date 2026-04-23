@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from backend.config import CST, log
+from backend.config import CST, TICK_RETENTION_DAYS, log
 
 _scheduler: BackgroundScheduler | None = None
 _lock = threading.Lock()
@@ -50,6 +50,18 @@ def _daily_scan_job():
         log.error(f"[Scheduler] Daily scan exception: {exc}")
 
 
+def _daily_cleanup_job():
+    """每日定时任务：清理超过保留期限的旧 tick 数据。"""
+    cutoff = (datetime.now(CST) - timedelta(days=TICK_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    log.info(f"[Scheduler] Starting daily tick cleanup (retention={TICK_RETENTION_DAYS} days, before={cutoff})")
+    try:
+        from backend.tick_storage import delete_old_ticks
+        deleted = delete_old_ticks(cutoff)
+        log.info(f"[Scheduler] Daily tick cleanup complete: {deleted} rows deleted")
+    except Exception as exc:
+        log.error(f"[Scheduler] Daily tick cleanup exception: {exc}")
+
+
 def start_scheduler() -> BackgroundScheduler | None:
     """启动后台调度器。每天北京时间 04:00 执行（COMEX 收盘后约 1 小时）。"""
     global _scheduler
@@ -59,16 +71,23 @@ def start_scheduler() -> BackgroundScheduler | None:
             return _scheduler
         try:
             sched = BackgroundScheduler(timezone=str(CST))
-            # 每天 04:00 CST 执行
+            # 每天 04:00 CST 执行扫描
             sched.add_job(
                 _daily_scan_job,
                 trigger=CronTrigger(hour=4, minute=0, timezone=str(CST)),
                 id="daily_5min_scan",
                 replace_existing=True,
             )
+            # 每天 04:30 CST 执行 tick 清理
+            sched.add_job(
+                _daily_cleanup_job,
+                trigger=CronTrigger(hour=4, minute=30, timezone=str(CST)),
+                id="daily_tick_cleanup",
+                replace_existing=True,
+            )
             sched.start()
             _scheduler = sched
-            log.info("[Scheduler] Started. Daily scan at 04:00 CST.")
+            log.info("[Scheduler] Started. Daily scan at 04:00 CST, tick cleanup at 04:30 CST.")
             return sched
         except Exception as exc:
             log.error(f"[Scheduler] Failed to start: {exc}")

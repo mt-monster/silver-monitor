@@ -58,6 +58,7 @@
     Monitor.updateRtCharts();
     Monitor.updateMomentumSignals(data);
     Monitor.updateReversalSignals(data);
+    Monitor.updateCombinedSignals(data);
 
     Monitor.updateGoldPriceCards(data);
     Monitor.recordGoldTicks(data);
@@ -88,6 +89,8 @@
       btc: payload.btc || {},
       signals: payload.signals || {},
       reversalSignals: payload.reversalSignals || {},
+      combinedSignals: payload.combinedSignals || {},
+      mtfTrends: payload.mtfTrends || {},
       activeSources: ["SSE"],
     };
 
@@ -98,6 +101,7 @@
     Monitor.updateRtCharts();
     Monitor.updateMomentumSignals(data);
     Monitor.updateReversalSignals(data);
+    Monitor.updateCombinedSignals(data);
 
     Monitor.updateGoldPriceCards(data);
     Monitor.recordGoldTicks(data);

@@ -65,6 +65,12 @@ class AppState:
     # 预计算的反转信号：instrument_id → {"signal": str, "score": float, "rsi": float, ...} | None
     instrument_reversal_signals: dict = field(default_factory=dict)
 
+    # MTF 大局趋势：instrument_id → {"trend": "up"|"down"|"sideways", ...}
+    instrument_mtf_trends: dict = field(default_factory=dict)
+
+    # 组合信号：instrument_id → {"signal": str, "source": str, ...}
+    instrument_combined_signals: dict = field(default_factory=dict)
+
     # 动量策略 cooldown 状态
     instrument_momentum_cooldown: dict = field(default_factory=dict)  # iid -> int(剩余bar)
     instrument_momentum_last_active: dict = field(default_factory=dict)  # iid -> str(上次非neutral信号)

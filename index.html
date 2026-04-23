@@ -299,6 +299,47 @@
     </div>
   </div>
 
+  <!-- Combined Signal (MTF + Momentum + Reversal) -->
+  <div class="drag-section" data-section="combined">
+    <div class="drag-handle" title="拖拽排序">⠿</div>
+    <div class="signal-row">
+      <div class="signal-card combined-card">
+        <div class="signal-head">
+          <div class="label">🔴 沪银组合信号 <span class="cmb-tag">MTF+动量+反转</span></div>
+          <span id="huCmbPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="huCmbBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span>MTF趋势</span><span class="val" id="huCmbMtf">--</span></div>
+            <div class="row"><span>信号来源</span><span class="val" id="huCmbSource">--</span></div>
+            <div class="row"><span>建议仓位</span><span class="val" id="huCmbPos">--</span></div>
+            <div class="row"><span>决策理由</span><span class="val" id="huCmbReason" style="font-size:10px">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="huCmbBar" style="width:50%"></div></div>
+        <div class="signal-note" id="huCmbNote">等待数据...</div>
+      </div>
+      <div class="signal-card combined-card">
+        <div class="signal-head">
+          <div class="label">🟢 COMEX组合信号 <span class="cmb-tag">MTF+动量+反转</span></div>
+          <span id="coCmbPts" style="font-size:9px;color:var(--text3)">--</span>
+        </div>
+        <div class="signal-body">
+          <div class="signal-badge neutral" id="coCmbBadge">等待</div>
+          <div class="signal-metrics">
+            <div class="row"><span>MTF趋势</span><span class="val" id="coCmbMtf">--</span></div>
+            <div class="row"><span>信号来源</span><span class="val" id="coCmbSource">--</span></div>
+            <div class="row"><span>建议仓位</span><span class="val" id="coCmbPos">--</span></div>
+            <div class="row"><span>决策理由</span><span class="val" id="coCmbReason" style="font-size:10px">--</span></div>
+          </div>
+        </div>
+        <div class="signal-bar"><div class="signal-bar-inner flat" id="coCmbBar" style="width:50%"></div></div>
+        <div class="signal-note" id="coCmbNote">等待数据...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Real-time Price Charts (from fast poll, no history dependency) -->
   <div class="drag-section" data-section="rtcharts">
     <div class="drag-handle" title="拖拽排序">⠿</div>
@@ -674,6 +715,7 @@
 <script src="assets/js/monitor/indicators.js"></script>
 <script src="assets/js/monitor/momentum.js"></script>
 <script src="assets/js/monitor/reversal.js"></script>
+<script src="assets/js/monitor/combined.js"></script>
 <script src="assets/js/monitor/alerts.js"></script>
 <script src="assets/js/monitor/gold.js"></script>
 <script src="assets/js/monitor/crypto.js"></script>
