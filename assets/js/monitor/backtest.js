@@ -1,4 +1,3 @@
--- Active: 1776860992409@@127.0.0.1@3306
 // backtest.js — Silver Monitor 回测绩效卡片渲染与API
 (function () {
   const Monitor = window.Monitor = window.Monitor || {};
