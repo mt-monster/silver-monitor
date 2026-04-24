@@ -7,6 +7,7 @@ from backend.strategies.momentum import (
     MomentumParams,
     _apply_signal_cooldown,
     _fuse_with_bb,
+    _fuse_with_volume,
     bollinger_at,
     calc_momentum,
     ema_series,
@@ -246,6 +247,100 @@ class SignalCooldownTestCase(unittest.TestCase):
         self.assertEqual(cd2, 1)
         _, cd3, _ = _apply_signal_cooldown("buy", "buy", 1, 2)
         self.assertEqual(cd3, 0)
+
+
+class VolumeFusionTestCase(unittest.TestCase):
+    """测试成交量确认/降级逻辑。"""
+
+    def test_fuse_volume_strong_buy_shrinks_to_buy(self):
+        """强多 + 缩量 → 降级为 buy。"""
+        self.assertEqual(_fuse_with_volume("strong_buy", 0.4, 1.5, 0.6), "buy")
+
+    def test_fuse_volume_buy_shrinks_to_neutral(self):
+        """buy + 缩量 → 降级为 neutral。"""
+        self.assertEqual(_fuse_with_volume("buy", 0.4, 1.5, 0.6), "neutral")
+
+    def test_fuse_volume_buy_expands_to_strong_buy(self):
+        """buy + 放量 → 升级为 strong_buy。"""
+        self.assertEqual(_fuse_with_volume("buy", 2.0, 1.5, 0.6), "strong_buy")
+
+    def test_fuse_volume_strong_sell_shrinks_to_sell(self):
+        """强空 + 缩量 → 降级为 sell。"""
+        self.assertEqual(_fuse_with_volume("strong_sell", 0.4, 1.5, 0.6), "sell")
+
+    def test_fuse_volume_sell_shrinks_to_neutral(self):
+        """sell + 缩量 → 降级为 neutral。"""
+        self.assertEqual(_fuse_with_volume("sell", 0.4, 1.5, 0.6), "neutral")
+
+    def test_fuse_volume_sell_expands_to_strong_sell(self):
+        """sell + 放量 → 升级为 strong_sell。"""
+        self.assertEqual(_fuse_with_volume("sell", 2.0, 1.5, 0.6), "strong_sell")
+
+    def test_fuse_volume_neutral_unchanged(self):
+        """neutral 不受成交量影响。"""
+        self.assertEqual(_fuse_with_volume("neutral", 2.0, 1.5, 0.6), "neutral")
+
+    def test_calc_momentum_with_volume_confirm(self):
+        """提供放量成交量序列，buy 应升级为 strong_buy。"""
+        base = 10000.0
+        vals = [base + i * 80.0 for i in range(50)]
+        volumes = [100.0] * 49 + [300.0]  # 最后一根放量 3 倍
+        info = calc_momentum(vals, MomentumParams(
+            volume_period=10, volume_confirm_ratio=1.5, volume_weaken_ratio=0.6
+        ), volumes=volumes)
+        self.assertIsNotNone(info)
+        self.assertIn("volumeRatio", info)
+        self.assertGreater(info["volumeRatio"], 1.5)
+        self.assertEqual(info["signal"], "strong_buy")
+
+    def test_calc_momentum_with_volume_weaken(self):
+        """提供缩量成交量序列，strong_buy 应降级为 buy。"""
+        base = 10000.0
+        vals = [base + i * 80.0 for i in range(50)]
+        volumes = [100.0] * 49 + [10.0]  # 最后一根大幅缩量
+        info = calc_momentum(vals, MomentumParams(
+            volume_period=10, volume_confirm_ratio=1.5, volume_weaken_ratio=0.6
+        ), volumes=volumes)
+        self.assertIsNotNone(info)
+        self.assertIn("volumeRatio", info)
+        self.assertLess(info["volumeRatio"], 0.6)
+        self.assertEqual(info["signal"], "buy")
+
+
+class SqueezeBreakoutTestCase(unittest.TestCase):
+    """测试 Squeeze Breakout 突破逻辑。"""
+
+    def test_squeeze_breakout_upgrades_buy_to_strong_buy(self):
+        """前一根缩口 + 当前扩张 + buy 信号 → strong_buy。"""
+        # 60 根横盘（制造缩口），然后 1 根突破
+        vals = [100.0] * 60 + [105.0]
+        info = calc_momentum(vals, MomentumParams(
+            short_p=10, long_p=20, spread_entry=0.05, slope_entry=0.01,
+            bb_period=20, bb_mult=2.0
+        ))
+        self.assertIsNotNone(info)
+        self.assertIn("bb", info)
+        self.assertTrue(info["bb"]["squeezeBreak"])
+        self.assertEqual(info["signal"], "strong_buy")
+
+    def test_squeeze_breakout_no_signal_when_not_expanding(self):
+        """前一根缩口但不扩张 → 无 breakout。"""
+        # 61 根横盘（持续缩口）
+        vals = [100.0] * 61
+        info = calc_momentum(vals, MomentumParams(
+            short_p=10, long_p=20, bb_period=20, bb_mult=2.0
+        ))
+        self.assertIsNotNone(info)
+        self.assertIn("bb", info)
+        self.assertFalse(info["bb"]["squeezeBreak"])
+
+    def test_squeeze_breakout_field_present(self):
+        """BB 启用时结果应包含 squeezeBreak 字段。"""
+        vals = [100.0 + i * 2.0 for i in range(50)]
+        info = calc_momentum(vals, MomentumParams(bb_period=20, bb_mult=2.0))
+        self.assertIsNotNone(info)
+        self.assertIn("bb", info)
+        self.assertIn("squeezeBreak", info["bb"])
 
 
 class VolatilityFilterTestCase(unittest.TestCase):

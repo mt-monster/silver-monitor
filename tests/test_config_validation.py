@@ -126,14 +126,14 @@ class ConfigValidationTestCase(unittest.TestCase):
             "comex slope_entry 不应低于 default"
         )
 
-    def test_reversal_realtime_comex_not_more_aggressive_than_default(self):
-        """comex realtime 不应比 default 更激进。"""
+    def test_reversal_realtime_comex_params_valid(self):
+        """comex realtime 反转参数应在合理范围内。"""
         rt = self.cfg["reversal"]["realtime"]
-        # 偏离度：越低越激进
-        self.assertGreaterEqual(
-            rt["comex"]["deviation_entry"], rt["default"]["deviation_entry"],
-            "comex deviation_entry 不应低于 default"
-        )
+        # COMEX 白银高波动，deviation_entry 可低于 default
+        self.assertGreater(rt["comex"]["deviation_entry"], 0.05,
+            "comex deviation_entry 不应过低")
+        self.assertLess(rt["comex"]["deviation_entry"], 0.5,
+            "comex deviation_entry 不应过高")
 
 
 if __name__ == "__main__":

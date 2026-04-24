@@ -22,6 +22,10 @@ class MomentumParams:
     bb_buy_kill: float = 0.3   # buy 信号在 %B 低于此值时被压制为 neutral
     bb_sell_kill: float = 0.7  # sell 信号在 %B 高于此值时被压制为 neutral
     min_volatility_pct: float = 0.0  # 最小价格波动率(%)。>0 时若近期 CV 低于此值，方向信号降级为 neutral
+    # 成交量确认（0 = 禁用）
+    volume_period: int = 0
+    volume_confirm_ratio: float = 1.5
+    volume_weaken_ratio: float = 0.6
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -160,6 +164,38 @@ def _fuse_with_rsi(base_signal: str, rsi: float) -> str:
     return sig
 
 
+def _fuse_with_volume(signal: str, volume_ratio: float,
+                      confirm_ratio: float = 1.5, weaken_ratio: float = 0.6) -> str:
+    """成交量确认/否决：放量顺势确认，缩量顺势降级。
+
+    规则：
+    - strong_buy + 缩量 → buy
+    - buy + 缩量 → neutral
+    - buy + 放量 → strong_buy
+    - strong_sell + 缩量 → sell
+    - sell + 缩量 → neutral
+    - sell + 放量 → strong_sell
+    """
+    sig = signal
+    if sig == "strong_buy":
+        if volume_ratio < weaken_ratio:
+            sig = "buy"
+    elif sig == "buy":
+        if volume_ratio < weaken_ratio:
+            sig = "neutral"
+        elif volume_ratio > confirm_ratio:
+            sig = "strong_buy"
+    elif sig == "strong_sell":
+        if volume_ratio < weaken_ratio:
+            sig = "sell"
+    elif sig == "sell":
+        if volume_ratio < weaken_ratio:
+            sig = "neutral"
+        elif volume_ratio > confirm_ratio:
+            sig = "strong_sell"
+    return sig
+
+
 def _apply_signal_cooldown(signal: str, last_active: str, cooldown: int, cooldown_bars: int) -> tuple[str, int, bool]:
     """
     实时信号 cooldown 逻辑：方向翻转后 N 个 bar 内压制信号为 neutral。
@@ -199,11 +235,14 @@ def _apply_signal_cooldown(signal: str, last_active: str, cooldown: int, cooldow
     return signal, new_cooldown, updated_last
 
 
-def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> dict[str, Any] | None:
+def calc_momentum(vals: list[float],
+                  params: MomentumParams | None = None,
+                  volumes: list[float] | None = None) -> dict[str, Any] | None:
     """
-    输入收盘价序列（与 JS 中 series 的 y 一致）。
+    输入收盘价序列（与 JS 中 series 的 y 一致），可选传入同长度成交量序列。
     返回与 momentum.js calcMomentum 相同语义的字段；样本不足时返回 None。
     当 bb_period > 0 时自动计算 Bollinger 带并融合信号。
+    当 volume_period > 0 且提供 volumes 时，用成交量 EMA 比率做信号确认/降级。
     """
     p = params or MomentumParams()
     min_len = p.long_p + 2
@@ -248,6 +287,23 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
                             bws.append(bb_j["bandwidth"])
                 if bws and bb_now["bandwidth"] <= min(bws):
                     squeeze = True
+            # Squeeze Break: 前一根缩口 + 当前不缩口 + 带宽扩张 → 方向选择突破
+            prev_squeeze = False
+            if len(vals) > p.bb_period * 2 + 1:
+                prev_bws: list[float] = []
+                for j in range(p.bb_period):
+                    end = len(vals) - 1 - j
+                    if end >= p.bb_period:
+                        bb_j = bollinger_at(vals[:end], p.bb_period, p.bb_mult)
+                        if bb_j:
+                            prev_bws.append(bb_j["bandwidth"])
+                if prev_bws:
+                    bb_prev_bar = bollinger_at(vals[:-1], p.bb_period, p.bb_mult)
+                    if bb_prev_bar and bb_prev_bar["bandwidth"] <= min(prev_bws):
+                        prev_squeeze = True
+            squeeze_break = prev_squeeze and not squeeze and bw_expanding
+            if squeeze_break and signal in ("buy", "sell"):
+                signal = "strong_buy" if signal == "buy" else "strong_sell"
             bb_info = {
                 "upper": bb_now["upper"],
                 "middle": bb_now["middle"],
@@ -256,6 +312,7 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
                 "bandwidth": bb_now["bandwidth"],
                 "bwExpanding": bw_expanding,
                 "squeeze": squeeze,
+                "squeezeBreak": squeeze_break,
             }
 
     # RSI 融合
@@ -265,6 +322,17 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         rsi_val = rsi_all[-1]
         if rsi_val is not None:
             signal = _fuse_with_rsi(signal, rsi_val)
+
+    # 成交量确认/降级
+    volume_ratio: float | None = None
+    if p.volume_period > 0 and volumes and len(volumes) >= p.volume_period:
+        vol_ema = ema_series(volumes, p.volume_period)
+        if vol_ema and vol_ema[-1] is not None and vol_ema[-1] > 0:
+            vr = volumes[-1] / vol_ema[-1]
+            if math.isfinite(vr) and vr >= 0:
+                volume_ratio = vr
+                signal = _fuse_with_volume(signal, volume_ratio,
+                                           p.volume_confirm_ratio, p.volume_weaken_ratio)
 
     # 波动率过滤：横盘/噪声环境时抑制方向性信号
     # 自适应阈值：根据近期 CV 动态调整，低波动时逐步放开
@@ -304,6 +372,8 @@ def calc_momentum(vals: list[float], params: MomentumParams | None = None) -> di
         result["bb"] = bb_info
     if rsi_val is not None:
         result["rsi"] = rsi_val
+    if volume_ratio is not None:
+        result["volumeRatio"] = round(volume_ratio, 3)
     if volatility_pct is not None:
         result["volatilityPct"] = round(volatility_pct, 4)
     if adaptive_vol_threshold is not None:

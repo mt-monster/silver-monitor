@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,17 +45,26 @@ class ReversalParams:
     bb_weight: float = 0.35
     deviation_weight: float = 0.25
 
+    # 成交量融合（0 = 禁用）
+    volume_period: int = 0
+    volume_confirm_ratio: float = 1.5
+    volume_weaken_ratio: float = 0.6
+    volume_weight: float = 0.15
+
     # 确认 & 冷却
     min_score: float = 0.5           # 综合得分达到此值才发出信号
     strong_score: float = 0.8        # 强信号分数线
     cooldown_bars: int = 2
 
 
-def calc_reversal(vals: list[float], params: ReversalParams | None = None) -> dict[str, Any] | None:
+def calc_reversal(vals: list[float],
+                  params: ReversalParams | None = None,
+                  volumes: list[float] | None = None) -> dict[str, Any] | None:
     """
-    输入收盘价序列，返回反转信号。
+    输入收盘价序列，可选传入同长度成交量序列，返回反转信号。
     返回字段与 calc_momentum 同语义：signal, strength, spreadPct 等。
     样本不足返回 None。
+    当 volume_period > 0 且提供 volumes 时，用成交量 EMA 比率修正综合得分。
     """
     p = params or ReversalParams()
     min_len = max(p.rsi_period + 1, p.bb_period, p.ema_period) + 2
@@ -118,13 +128,39 @@ def calc_reversal(vals: list[float], params: ReversalParams | None = None) -> di
         # 价格低于 EMA → 看多反转（正分），高于 EMA → 看空反转（负分）
         dev_score = raw if deviation_pct < 0 else -raw
 
-    # ── 综合评分 ──────────────────────────────────────────────
+    # ── 综合评分（先算基础分，再融入成交量修正）───────────────────
     total_score = (
         rsi_score * p.rsi_weight
         + bb_score * p.bb_weight
         + dev_score * p.deviation_weight
     )
 
+    # ── 成交量融合 ────────────────────────────────────────────
+    volume_ratio: float | None = None
+    if p.volume_period > 0 and volumes and len(volumes) >= p.volume_period:
+        vol_ema = ema_series(volumes, p.volume_period)
+        if vol_ema and vol_ema[-1] is not None and vol_ema[-1] > 0:
+            vr = volumes[-1] / vol_ema[-1]
+            if not math.isfinite(vr) or vr < 0:
+                pass
+            else:
+                volume_ratio = vr
+                volume_score = 0.0
+                if volume_ratio > p.volume_confirm_ratio:
+                    # 放量，确认当前运动方向
+                    if total_score > 0:  # 看多反转（赌反弹）
+                        volume_score = min(1.0, (volume_ratio - 1.0) / (p.volume_confirm_ratio - 1.0))
+                    elif total_score < 0:  # 看空反转（赌回调）
+                        volume_score = -min(1.0, (volume_ratio - 1.0) / (p.volume_confirm_ratio - 1.0))
+                elif volume_ratio < p.volume_weaken_ratio:
+                    # 缩量，减弱信号
+                    if total_score > 0:
+                        volume_score = -0.5
+                    elif total_score < 0:
+                        volume_score = 0.5
+                total_score += volume_score * p.volume_weight
+
+    # ── 最终评分判定 ──────────────────────────────────────────
     abs_score = abs(total_score)
     if abs_score >= p.strong_score:
         signal = "strong_buy" if total_score > 0 else "strong_sell"
@@ -148,4 +184,6 @@ def calc_reversal(vals: list[float], params: ReversalParams | None = None) -> di
     }
     if bb_info:
         result["bb"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in bb_info.items()}
+    if volume_ratio is not None:
+        result["volumeRatio"] = round(volume_ratio, 3)
     return result

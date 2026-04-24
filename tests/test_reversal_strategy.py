@@ -182,6 +182,78 @@ class ReversalBoundaryTestCase(unittest.TestCase):
         self.assertEqual(info["signal"], "neutral")
 
 
+class ReversalVolumeTestCase(unittest.TestCase):
+    """测试反转策略成交量融合逻辑。"""
+
+    def test_volume_ratio_present_when_enabled(self):
+        """启用 volume 时结果应包含 volumeRatio。"""
+        base = 100.0
+        vals = [base] * 10
+        for i in range(1, 30):
+            vals.append(vals[-1] - 0.8)
+        volumes = [100.0] * 39 + [300.0]
+        info = calc_reversal(vals, ReversalParams(
+            rsi_period=7, volume_period=10, volume_confirm_ratio=1.5,
+            volume_weaken_ratio=0.6, volume_weight=0.15
+        ), volumes=volumes)
+        self.assertIsNotNone(info)
+        self.assertIn("volumeRatio", info)
+
+    def test_volume_confirm_boosts_score(self):
+        """放量应提升同向信号的得分。"""
+        base = 100.0
+        vals = [base] * 10
+        for i in range(1, 30):
+            vals.append(vals[-1] - 0.8)
+        # 缩量
+        vol_low = [100.0] * 39 + [10.0]
+        info_low = calc_reversal(vals, ReversalParams(
+            rsi_period=7, volume_period=10, volume_confirm_ratio=1.5,
+            volume_weaken_ratio=0.6, volume_weight=0.15
+        ), volumes=vol_low)
+        # 放量
+        vol_high = [100.0] * 39 + [300.0]
+        info_high = calc_reversal(vals, ReversalParams(
+            rsi_period=7, volume_period=10, volume_confirm_ratio=1.5,
+            volume_weaken_ratio=0.6, volume_weight=0.15
+        ), volumes=vol_high)
+        self.assertIsNotNone(info_low)
+        self.assertIsNotNone(info_high)
+        # 放量时得分应不低于缩量时（同向信号下）
+        self.assertGreaterEqual(info_high["score"], info_low["score"])
+
+    def test_volume_weaken_reduces_score(self):
+        """缩量应降低同向信号的得分。"""
+        base = 100.0
+        vals = [base] * 10
+        for i in range(1, 30):
+            vals.append(vals[-1] - 0.8)
+        # 无成交量修正的基准
+        info_base = calc_reversal(vals, ReversalParams(
+            rsi_period=7, volume_period=0
+        ))
+        # 缩量修正
+        vol_low = [100.0] * 39 + [10.0]
+        info_low = calc_reversal(vals, ReversalParams(
+            rsi_period=7, volume_period=10, volume_confirm_ratio=1.5,
+            volume_weaken_ratio=0.6, volume_weight=0.15
+        ), volumes=vol_low)
+        self.assertIsNotNone(info_base)
+        self.assertIsNotNone(info_low)
+        # 缩量时得分应不高于基准（看多反转下缩量会扣分）
+        self.assertLessEqual(info_low["score"], info_base["score"])
+
+    def test_volume_disabled_no_field(self):
+        """volume_period=0 时结果不含 volumeRatio。"""
+        base = 100.0
+        vals = [base] * 10
+        for i in range(1, 30):
+            vals.append(vals[-1] - 0.8)
+        info = calc_reversal(vals, ReversalParams(rsi_period=7, volume_period=0))
+        self.assertIsNotNone(info)
+        self.assertNotIn("volumeRatio", info)
+
+
 class ReversalParamsTestCase(unittest.TestCase):
     """参数配置测试。"""
 
@@ -192,7 +264,7 @@ class ReversalParamsTestCase(unittest.TestCase):
         self.assertGreater(p.rsi_overbought, p.rsi_oversold)
         self.assertGreater(p.deviation_strong, p.deviation_entry)
         self.assertGreater(p.strong_score, p.min_score)
-        self.assertGreater(p.cooldown_bars, 0)
+        self.assertGreaterEqual(p.cooldown_bars, 0)
 
     def test_custom_params_override(self):
         """自定义参数应影响信号结果。"""

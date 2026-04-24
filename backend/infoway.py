@@ -346,7 +346,7 @@ def fetch_comex_silver_infoway() -> dict | None:
         "open": round(q["open"], 3) if q.get("open") else None,
         "high": round(q["high"], 3) if q.get("high") else None,
         "low": round(q["low"], 3) if q.get("low") else None,
-        "volume": 0,
+        "volume": int(q.get("volume") or 0),
         "timestamp": q.get("timestamp", int(time.time() * 1000)),
         "datetime_cst": datetime.fromtimestamp(
             q.get("timestamp", time.time() * 1000) / 1000, tz=CST

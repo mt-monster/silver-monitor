@@ -112,6 +112,9 @@ def _momentum_params_for(inst_id: str):
         bb_buy_kill=float(m.get("bb_buy_kill", 0.3)),
         bb_sell_kill=float(m.get("bb_sell_kill", 0.7)),
         min_volatility_pct=float(m.get("min_volatility_pct", 0.0)),
+        volume_period=int(m.get("volume_period", 0)),
+        volume_confirm_ratio=float(m.get("volume_confirm_ratio", 1.5)),
+        volume_weaken_ratio=float(m.get("volume_weaken_ratio", 0.6)),
     )
 
 
@@ -123,9 +126,10 @@ def _recompute_signals(inst_ids: list[str]):
         for iid in inst_ids:
             rt_buf = state.realtime_backtest_buffers.get(iid, [])
             buf = [p["y"] for p in rt_buf]
+            vols = [p.get("v", 0) for p in rt_buf if p.get("v") is not None]
             params = _momentum_params_for(iid)
             if len(buf) >= params.long_p + 2:
-                raw = calc_momentum(buf, params)
+                raw = calc_momentum(buf, params, vols if vols else None)
                 if raw:
                     sig = raw["signal"]
                     cooldown = state.instrument_momentum_cooldown.get(iid, 0)
@@ -184,6 +188,10 @@ def _reversal_params_for(inst_id: str):
         rsi_weight=float(m.get("rsi_weight", 0.4)),
         bb_weight=float(m.get("bb_weight", 0.35)),
         deviation_weight=float(m.get("deviation_weight", 0.25)),
+        volume_period=int(m.get("volume_period", 0)),
+        volume_confirm_ratio=float(m.get("volume_confirm_ratio", 1.5)),
+        volume_weaken_ratio=float(m.get("volume_weaken_ratio", 0.6)),
+        volume_weight=float(m.get("volume_weight", 0.15)),
         min_score=float(m.get("min_score", 0.5)),
         strong_score=float(m.get("strong_score", 0.8)),
         cooldown_bars=int(m.get("cooldown_bars", 2)),
@@ -201,11 +209,12 @@ def _recompute_reversal_signals(inst_ids: list[str]):
         for iid in inst_ids:
             rt_buf = state.realtime_backtest_buffers.get(iid, [])
             buf = [p["y"] for p in rt_buf]
+            vols = [p.get("v", 0) for p in rt_buf if p.get("v") is not None]
             params = _reversal_params_for(iid)
             min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
             if len(buf) >= min_len:
                 try:
-                    raw = calc_reversal(buf, params)
+                    raw = calc_reversal(buf, params, vols if vols else None)
                     if raw:
                         sig = raw["signal"]
                         cooldown = state.instrument_reversal_cooldown.get(iid, 0)
@@ -838,7 +847,11 @@ def _buffer_precious_prices():
 
             # ── 高频实时采样（用于短周期回测）
             rt_buf = state.realtime_backtest_buffers.get(inst_id, [])
-            rt_buf.append({"t": ts_ms, "y": px})
+            pt = {"t": ts_ms, "y": px}
+            vol = d.get("volume")
+            if vol is not None:
+                pt["v"] = vol
+            rt_buf.append(pt)
             if len(rt_buf) > 300:
                 rt_buf = rt_buf[-300:]
             state.realtime_backtest_buffers[inst_id] = rt_buf

@@ -28,8 +28,13 @@
 | `spread_entry` | 0.10 | 张口门槛（%），与多头/空头结构联立 |
 | `spread_strong` | 0.35 | 强多/强空张口（%）；强信号仅看张口是否越过本阈值 |
 | `slope_entry` | 0.02 | 短 EMA 一步涨跌幅门槛（%），与张口同向确认 |
+| `volume_period` | 0 | 成交量 EMA 周期（0=禁用）。回测暂不支持成交量数据 |
+| `volume_confirm_ratio` | 1.5 | 放量确认阈值 |
+| `volume_weaken_ratio` | 0.6 | 缩量降级阈值 |
 
 动量判定为 **EMA 短/长张口 + 短 EMA 斜率**，不使用 ROC。详见 [momentum-strategy.md](momentum-strategy.md)。
+
+> 注：`volume_period` 等成交量参数主要用于实时监控场景。历史回测因 akshare 数据源不提供 tick/秒级成交量，回测引擎暂未将其纳入计算。
 
 上述默认值与 [monitor.config.json](../monitor.config.json) 中 `momentum` 一致；服务端在启动时加载，**改文件后需重启 HTTP 进程**方影响未带 `params` 的回测请求。监控面板从同一 JSON 拉取（无需重启浏览器进程，刷新即可）。
 

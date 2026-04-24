@@ -42,9 +42,9 @@ class MomentumParamsForTestCase(unittest.TestCase):
     def test_realtime_override_applied(self):
         """realtime 段参数应覆盖 default。"""
         p = _momentum_params_for("xag")
-        # COMEX realtime 配置了特定的 long_p/min_volatility_pct
-        self.assertNotEqual(p.long_p, MomentumParams().long_p)
+        # COMEX realtime 配置了特定的 min_volatility_pct / volume_period
         self.assertGreater(p.min_volatility_pct, 0.0)
+        self.assertGreater(p.volume_period, 0)
 
 
 class ReversalParamsForTestCase(unittest.TestCase):

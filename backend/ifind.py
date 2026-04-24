@@ -264,6 +264,8 @@ def fetch_comex_silver_ifind() -> dict | None:
         change_pct = _float(row.get("changeRatio")) or (
             round(change / prev_close * 100, 2) if prev_close else 0
         )
+        vol = _float(row.get("vol"))
+        volume = int(vol) if vol else 0
 
         price_cny = price_usd * conv
         dt_str = row.get("datetime", "")
@@ -285,7 +287,7 @@ def fetch_comex_silver_ifind() -> dict | None:
             "open": round(open_usd, 3),
             "high": round(high_usd, 3),
             "low": round(low_usd, 3),
-            "volume": 0,
+            "volume": volume,
             "timestamp": int(time.time() * 1000),
             "datetime_cst": dt_str,
             "usdCny": usd_cny,

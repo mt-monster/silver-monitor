@@ -34,18 +34,18 @@
     const cg = data.comexGold;
     const btc = data.btc;
     if (hu && !hu.error && !hu.closed && hu.price > 0)
-      Monitor._pushByTimeWindow(app.silverLivePoints, hu.price, hu.timestamp || Date.now(), cap);
+      Monitor._pushByTimeWindow(app.silverLivePoints, hu.price, hu.timestamp || Date.now(), cap, hu.volume);
     if (co && !co.error && !co.closed && co.price > 0)
-      Monitor._pushByTimeWindow(app.comexSilverLivePoints, co.price, co.timestamp || Date.now(), cap);
+      Monitor._pushByTimeWindow(app.comexSilverLivePoints, co.price, co.timestamp || Date.now(), cap, co.volume);
     app.goldLivePoints = app.goldLivePoints || [];
     app.comexGoldLivePoints = app.comexGoldLivePoints || [];
     if (au && !au.error && !au.closed && au.price > 0)
-      Monitor._pushByTimeWindow(app.goldLivePoints, au.price, au.timestamp || Date.now(), cap);
+      Monitor._pushByTimeWindow(app.goldLivePoints, au.price, au.timestamp || Date.now(), cap, au.volume);
     if (cg && !cg.error && !cg.closed && cg.price > 0)
-      Monitor._pushByTimeWindow(app.comexGoldLivePoints, cg.price, cg.timestamp || Date.now(), cap);
+      Monitor._pushByTimeWindow(app.comexGoldLivePoints, cg.price, cg.timestamp || Date.now(), cap, cg.volume);
     app.btcLivePoints = app.btcLivePoints || [];
     if (btc && !btc.error && !btc.closed && btc.price > 0)
-      Monitor._pushByTimeWindow(app.btcLivePoints, btc.price, btc.timestamp || Date.now(), cap);
+      Monitor._pushByTimeWindow(app.btcLivePoints, btc.price, btc.timestamp || Date.now(), cap, btc.volume);
   };
 
   /** 统一处理 /api/all 返回或 SSE push 的数据 */

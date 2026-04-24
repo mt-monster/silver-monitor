@@ -276,7 +276,8 @@
       return;
     }
 
-    var info = Monitor.calcMomentum(_livePoints, per.shortP, per.longP, th);
+    var dtVolumes = _livePoints.map(p => p.v).filter(v => v != null);
+    var info = Monitor.calcMomentum(_livePoints, per.shortP, per.longP, th, dtVolumes);
     Monitor.renderSignal("dt", info, (_inst && _inst.decimals) || 2);
 
     // Track signal history

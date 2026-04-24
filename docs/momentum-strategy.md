@@ -1,6 +1,6 @@
 # 动量策略：计算说明、使用方法与优化空间
 
-> 最后更新：2026-04-21 — 校准 realtime 参数至经济学合理范围；新增反转策略；指标函数拆分至 indicators.js；改为时间窗口采样
+> 最后更新：2026-04-24 — 新增成交量确认框架与 Squeeze Breakout 信号；COMEX 反转参数调优；COMEX 动量 EMA 周期扩展至 10/20
 
 ---
 
@@ -12,11 +12,11 @@
 
 | 信号 key | 中文 | 含义 |
 |---|---|---|
-| `strong_buy` | 强多 | EMA 张口大 + 斜率正 + BB 位置确认 |
+| `strong_buy` | 强多 | EMA 张口大 + 斜率正 + BB 位置确认，或 Squeeze Breakout 升级 |
 | `buy` | 做多 | EMA 金叉且张口 + 斜率正 |
-| `neutral` | 观望 | 条件不满足 / BB 否决 |
+| `neutral` | 观望 | 条件不满足 / BB 否决 / 成交量萎缩降级 |
 | `sell` | 做空 | EMA 死叉且张口 + 斜率负 |
-| `strong_sell` | 强空 | EMA 张口大 + 斜率负 + BB 位置确认 |
+| `strong_sell` | 强空 | EMA 张口大 + 斜率负 + BB 位置确认，或 Squeeze Breakout 升级 |
 
 ---
 
@@ -91,13 +91,40 @@ bwExpanding = 当前 bandwidth > 前一根 bandwidth
 | `sell` | `%B < 0.5` + 带宽扩张 | `strong_sell` | 三确认 |
 | `strong_sell` | `%B < 0.0` | `sell` | 超卖反弹风险，降级 |
 
-### 2.5 最少样本数
+**Squeeze Breakout**（`_squeeze_break`）：
+
+```
+squeeze      = 当前 bandwidth ≤ 近 bb_period 根最小带宽
+prev_squeeze = 前一根 bandwidth ≤ 近 bb_period 根最小带宽
+squeezeBreak = prev_squeeze AND NOT squeeze AND bwExpanding
+```
+
+当 `squeezeBreak = True` 且原始信号为 `buy` / `sell` 时，直接升级为 `strong_buy` / `strong_sell`。这是高波动品种（如 COMEX 银）的重要突破确认机制。
+
+### 2.5 成交量确认 / 降级（Volume Fusion）
+
+当 `volume_period > 0` 且提供成交量序列时，计算量比 `volume_ratio = 当前成交量 / 成交量 EMA(volume_period)`：
+
+| 原始信号 | 量比条件 | 修正为 | 理由 |
+|---|---|---|---|
+| `strong_buy` | `ratio < weaken_ratio` | `buy` | 缩量，强多降级 |
+| `buy` | `ratio < weaken_ratio` | `neutral` | 缩量，多仓信号取消 |
+| `buy` | `ratio > confirm_ratio` | `strong_buy` | 放量，多仓确认升级 |
+| `strong_sell` | `ratio < weaken_ratio` | `sell` | 缩量，强空降级 |
+| `sell` | `ratio < weaken_ratio` | `neutral` | 缩量，空仓信号取消 |
+| `sell` | `ratio > confirm_ratio` | `strong_sell` | 放量，空仓确认升级 |
+
+> **注意**：COMEX 银目前所有数据源（Infoway、Sina、iFinD）均不提供 tick/秒级成交量，因此 COMEX 银的量比字段永久显示 `"--"`。成交量框架已预留，待接入支持 tick 成交量的数据源（如 Polygon.io、CTP）后可自动生效。
+
+### 2.6 最少样本数
 
 ```
 minLen = long_p + 2
 ```
 
 默认 `long_p = 20` → 需至少 **22 个有效价格点**。不足时返回 null，界面显示「等待」。
+
+若启用 Squeeze Breakout 检测（`bb_period > 0`），需额外满足 `len(vals) >= bb_period * 2 + 1`（默认 BB20 → 需 41 根以上）。
 
 ---
 
@@ -113,10 +140,10 @@ minLen = long_p + 2
 | **触发** | `fetchData()` 每 1s 轮询 `/api/all` 后调用 |
 | **数据** | 实时 tick 序列（去重后追加），上限 180 点 |
 | **品种** | 沪银(hu) / COMEX银(co) / 沪金(au) / COMEX金(cg) |
-| **参数来源** | `monitor.config.json` 的 `momentum.realtime` 段 → `core.js` 加载 → 前后端统一使用 |
+| **参数来源** | `monitor.config.json` 的 `momentum.realtime` 段 → `core.js` 加载 → 前后端统一使用；支持 volume 参数 |
 | **Bar 周期** | `frontend.bar_window_ms` = **1000ms（1 秒/bar）** |
 | **最小样本** | `long_p + 2`；realtime `long_p=5` → 约 **7 秒**（7 根 × 1s）后出首条信号 |
-| **特殊功能** | 信号变化时对 `strong_buy`/`strong_sell` 播放提示音 |
+| **特殊功能** | 信号变化时对 `strong_buy`/`strong_sell` 播放提示音；Squeeze Breakout 检测 |
 
 **采样规则（时间窗口 Bar）**：仅在 `price > 0 && !closed && !error` 时处理。每个 Bar 窗口时长由 `frontend.bar_window_ms`（默认 10000ms = 10 秒）控制：同一窗口内新 tick 覆盖当前 Bar 末值（原地更新）；窗口切换时追加新 Bar。这替代了原来的纯价格去重，使周期参数与实际时间对应而非依赖价格变化频率。
 
@@ -128,7 +155,7 @@ minLen = long_p + 2
 | **触发** | 从全品类看板点击任一品种卡片后，独立 3s 轮询 `/api/instrument/{id}` |
 | **数据** | 实时 tick 序列（去重后追加），上限 600 点 |
 | **品种** | 注册表中全部 49 个品种 |
-| **参数来源** | 优先 `Monitor.momentumThresholds[inst.id]`，回退 default |
+| **参数来源** | 优先 `Monitor.momentumThresholds[inst.id]`，回退 default；支持 volume 参数 |
 
 ### 3.3 策略回测页
 
@@ -141,7 +168,7 @@ minLen = long_p + 2
 | **参数来源** | 请求体 `params` > `monitor.config.json` 品种特定 > 默认值 |
 | **执行模式** | Long-only、收盘调仓、不计手续费 |
 | **冷却机制** | `cooldown_bars`：开/平仓后跳过 N 根 bar（默认 0，可配置） |
-| **Squeeze 检测** | 后端额外计算 BB 缩口（当前带宽 ≤ 近 N 根最小带宽），实时监控不包含此逻辑 |
+| **Squeeze 检测** | 后端与前瑞均计算 Squeeze + Squeeze Breakout（当前带宽 ≤ 近 N 根最小带宽，且前一根缩口 + 当前扩张） |
 
 ---
 
@@ -161,7 +188,10 @@ minLen = long_p + 2
       "strength_multiplier": 120, // 强度条放大系数
       "cooldown_bars": 0,   // 回测冷却 bar 数
       "bb_period": 20,      // Bollinger 周期
-      "bb_mult": 2.0        // Bollinger 标准差乘数
+      "bb_mult": 2.0,       // Bollinger 标准差乘数
+      "volume_period": 0,   // 成交量 EMA 周期（0=禁用）
+      "volume_confirm_ratio": 1.5,  // 放量确认阈值
+      "volume_weaken_ratio": 0.6    // 缩量降级阈值
     },
     "huyin": { ... },       // 沪银品种专属覆盖
     "comex": { ... }        // COMEX银品种专属覆盖
@@ -171,30 +201,31 @@ minLen = long_p + 2
 
 ### 品种特定参数（已配置的例子）
 
-| 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period |
-|---|---|---|---|---|---|---|---|---|
-| **default** | 5 | 20 | 0.10 | 0.35 | 0.02 | 120 | 0 | 20 |
-| **huyin** (沪银) | 8 | 21 | 0.15 | 0.50 | 0.03 | 100 | 3 | 20 |
-| **comex** (COMEX银) | 3 | 10 | 0.05 | 0.18 | 0.010 | 300 | 2 | 10 |
-| **hujin** (沪金) | 8 | 21 | 0.12 | 0.40 | 0.025 | 100 | 3 | 20 |
-| **comex_gold** (COMEX金) | 3 | 10 | 0.03 | 0.12 | 0.008 | 300 | 2 | 10 |
+| 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period | volume_period |
+|---|---|---|---|---|---|---|---|---|---|
+| **default** | 5 | 20 | 0.10 | 0.35 | 0.02 | 120 | 0 | 20 | 0 |
+| **huyin** (沪银) | 8 | 21 | 0.15 | 0.50 | 0.03 | 100 | 3 | 20 | 0 |
+| **comex** (COMEX银) | 10 | 20 | 0.05 | 0.18 | 0.010 | 300 | 2 | 20 | 10 |
+| **hujin** (沪金) | 8 | 21 | 0.12 | 0.40 | 0.025 | 100 | 3 | 20 | 0 |
+| **comex_gold** (COMEX金) | 3 | 10 | 0.03 | 0.12 | 0.008 | 300 | 2 | 10 | 0 |
 
 ### Realtime 参数（实时监控面板专用）
 
 实时监控面板使用 `momentum.realtime` 段参数，设计目标是在 30 秒/bar 的频率下捕捉**可识别的短期趋势**，而非追逐噪声。
 
-| 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period | rsi_period |
-|---|---|---|---|---|---|---|---|---|---|
-| **realtime default** | 3 | 5 | 0.02 | 0.06 | 0.01 | 200 | 2 | 5 | 5 |
-| **realtime comex** | 3 | 5 | 0.02 | 0.06 | 0.01 | 200 | 2 | 5 | 5 |
-| **realtime huyin** | 3 | 5 | 0.025 | 0.075 | 0.012 | 200 | 2 | 5 | 5 |
+| 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period | rsi_period | volume_period |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **realtime default** | 5 | 15 | 0.03 | 0.08 | 0.015 | 250 | 2 | 10 | 10 | 0 |
+| **realtime comex** | 10 | 20 | 0.03 | 0.08 | 0.015 | 250 | 2 | 20 | 10 | 10 |
+| **realtime huyin** | 3 | 5 | 0.025 | 0.075 | 0.012 | 200 | 2 | 5 | 5 | 0 |
 
 **参数校准原则**：
-- `bar_window_ms = 1000ms`（1 秒/bar）：信号可在 **5~8 秒**内响应
-- `EMA3/5`：1s × 3~5 = 3~5 秒数据窗口，捕捉短期趋势而非噪声
-- `spread_entry = 0.02%`：银价 $30 时，0.02% = $0.006，约需 3~6 秒同向波动才触发
-- `RSI(5)`：1s × 5 = 5 秒窗口，反映超短期动量
-- `BB(5)`：1s × 5 = 5 秒布林带，标准差倍数 2.0
+- `bar_window_ms = 1000ms`（1 秒/bar）：信号可在 **5~20 秒**内响应
+- `EMA10/20`（COMEX）：1s × 10~20 = 10~20 秒数据窗口，过滤高频噪声，捕捉日内波段
+- `EMA3/5`（沪银）：1s × 3~5 = 3~5 秒数据窗口，捕捉短期趋势而非噪声
+- `spread_entry = 0.03%`：银价 $30 时，0.03% = $0.009，约需 5~10 秒同向波动才触发
+- `RSI(10)`：1s × 10 = 10 秒窗口，反映短期动量
+- `BB(20)`：1s × 20 = 20 秒布林带，标准差倍数 2.0
 
 **参数优先级**：请求体 `params` > 配置文件品种特定 > 配置文件 `default`；**实时监控额外叠加 `realtime` 段覆盖**。
 
@@ -211,6 +242,9 @@ minLen = long_p + 2
 | `cooldown_bars` | 回测冷却期 | 避免频繁反手 | 允许快速重新入场 |
 | `bb_period` | BB 周期 | 更宽的波动参考 | 更短期的波动参考 |
 | `bb_mult` | BB 标准差乘数 | 带更宽、%B 更集中 | 带更窄、超买超卖更敏感 |
+| `volume_period` | 成交量 EMA 周期 | 量比计算更平滑 | 更灵敏、易受单笔大单干扰 |
+| `volume_confirm_ratio` | 放量确认阈值 | 需要更大量才确认 | 较小成交量即可升级信号 |
+| `volume_weaken_ratio` | 缩量降级阈值 | 更容易触发降级 | 需要更小量才降级 |
 
 ---
 
@@ -228,7 +262,7 @@ minLen = long_p + 2
 | 反转信号 | `Monitor.calcReversal()` (**reversal.js**) | — (前端专属) |
 | 信号渲染 | `Monitor.renderSignal(prefix, info, decimals)` | — (前端专属) |
 
-**注意**：后端 `calc_momentum` 额外计算 Squeeze（缩口检测），前端 `calcMomentum` 不含此功能。
+**注意**：后端与前瑞均计算 Squeeze + Squeeze Breakout，逻辑一致。
 
 ---
 
@@ -245,6 +279,9 @@ minLen = long_p + 2
 | Boll %B | `bb.percentB` | >0.8 红，<0.2 绿 |
 | 带宽 | `bb.bandwidth` | 百分比 |
 | 强度条 | `strength` | 0-100%，bull/bear/flat 配色 |
+| Squeeze | `bb.squeeze` | 缩口状态：当前带宽 ≤ 近 N 根最小带宽 |
+| Squeeze Break | `bb.squeezeBreak` | 前一根缩口 + 当前扩张 → 突破信号 |
+| 量比 | `volumeRatio` | 当前成交量 / 成交量 EMA；COMEX 银永久显示 "--" |
 | 备注行 | `spreadPct` + BB 状态 | "动量差 ±x.xxx%" + "超买/超卖/带宽扩张" |
 | 提示音 | 信号变化时 | 仅 strong_buy / strong_sell 触发 |
 
@@ -280,9 +317,9 @@ minLen = long_p + 2
 minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 ```
 
-以 COMEX 银 realtime 配置（`rsi_period=14, bb_period=10, ema_period=20`）为例：
-`minLen = max(15, 10, 20) + 2 = 22`
-以 30s/bar 计算：约需 **11 分钟**数据后开始输出信号。
+以 COMEX 银 realtime 配置（`rsi_period=8, bb_period=15, ema_period=15`）为例：
+`minLen = max(9, 15, 15) + 2 = 17`
+以 1s/bar 计算：约需 **17 秒**数据后开始输出信号。
 
 ### 7.3 参数配置
 
@@ -301,7 +338,9 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
     "deviation_strong": 1.5,
     "min_score": 0.5,
     "strong_score": 0.8,
-    "cooldown_bars": 3
+    "cooldown_bars": 2,
+    "volume_period": 0,
+    "volume_weight": 0.15
   },
   "realtime": {
     "default": { ... },
@@ -312,9 +351,11 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 ```
 
 **Realtime 反转参数校准**：
-- `deviation_entry ≥ 0.3%`：确保偏离度有统计意义，白银日内波动 0.5%~3%
-- `rsi_oversold=30 / overbought=70`：标准阈值，避免 42/58 将正常波动误判为超买超卖
-- `min_score=0.5 / strong_score=0.8`：提高门槛，要求多因子确认才发出信号
+- `deviation_entry = 0.12%`（COMEX 银）：白银日内波动 0.5%~3%，0.12% 可捕捉正常回调/反弹
+- `rsi_oversold=35 / overbought=65`（COMEX 银）：放宽阈值，COMEX 银 rarely 触及 30/70 极端
+- `min_score=0.35 / strong_score=0.75`（COMEX 银）：降低门槛，适配高波动环境下的频繁反转机会
+- `cooldown_bars=1`：极短冷却，允许快速反手
+- `volume_period=10 / volume_weight=0.15`：成交量修正框架已就绪，COMEX 银待数据源支持后自动生效
 
 ---
 
@@ -327,8 +368,8 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 |---|---|---|
 | **自适应参数** | 当前 EMA 周期和阈值为静态配置，需人工调优 | 引入 ATR 自适应：`spread_entry = f(ATR%)`，高波动品种自动放宽阈值，低波动品种收紧 |
 | **多时间框架确认** | 仅使用单一频率数据 | 增加 MTF（Multi-Timeframe）：如用日线趋势方向过滤 60min 信号，减少逆势交易 |
-| **成交量确认** | 当前完全不使用成交量 | 国内品种 Sina 数据含 volume 字段，可加入「量价齐升」确认：有量的突破权重更高 |
-| **Squeeze 前端补齐** | 后端 backtest 计算 Squeeze（BB 缩口），前端实时监控未实现 | 前端 `calcMomentum` 补充 Squeeze 检测，缩口后首次扩张可作为额外入场信号 |
+| **成交量确认** | ~~当前完全不使用成交量~~ ✅ 已落地 | 框架已就绪：`volume_period`/`volume_confirm_ratio`/`volume_weaken_ratio` 前后端一致；国内品种 Sina 数据含 volume 字段，COMEX 银待数据源支持 |
+| **Squeeze 前端补齐** | ~~后端 backtest 计算 Squeeze，前端未实现~~ ✅ 已落地 | 前后端均实现 Squeeze + Squeeze Breakout：`prev_squeeze && !squeeze && bwExpanding` 升级 buy/sell → strong_buy/strong_sell |
 | **信号冷却** | 实时监控无 cooldown 机制，信号可能频繁翻转 | 加入前端 cooldown 计数器（类比回测的 `cooldown_bars`） |
 | **RSI / MACD 扩展** | 仅 EMA+BB 两个维度 | 增加 RSI 超买超卖区间作为第三维度融合，构成更完整的多因子模型 |
 
@@ -374,7 +415,7 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 
 | 文件 | 职责 |
 |---|---|
-| `backend/strategies/momentum.py` | 核心算法：`MomentumParams`、`ema_series`、`bollinger_at`、`_fuse_with_bb`、`calc_momentum` |
+| `backend/strategies/momentum.py` | 核心算法：`MomentumParams`、`ema_series`、`bollinger_at`、`_fuse_with_bb`、`_fuse_with_volume`、`calc_momentum` |
 | `backend/backtest.py` | 回测引擎：历史加载、增量 EMA/BB、long-only 回测循环、绩效计算 |
 | `backend/sources.py` | 历史数据获取：专用 + 通用（`fetch_generic_domestic_history` / `fetch_generic_intl_history`） |
 | `assets/js/monitor/momentum.js` | 前端动量：`ema`、`bollingerAt`、`calcMomentum`、`renderSignal`、提示音 |
@@ -396,5 +437,6 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 - [ ] `assets/js/monitor/momentum.js` → 如改公式需同步
 - [ ] `assets/js/monitor/detail.js` → `_updateMomentum()` 中的 hardcoded defaults
 - [ ] `backend/backtest.py` → `momentum_params_from_body()` 参数解析
-- [ ] `tests/test_momentum_strategy.py` → 单测断言
+- [ ] `tests/test_momentum_strategy.py` → 单测断言（含 volume、squeezeBreak）
+- [ ] `tests/test_reversal_strategy.py` → 单测断言（含 volume）
 - [ ] 本文档

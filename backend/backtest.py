@@ -461,6 +461,9 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         bb_buy_kill=float(p.get("bb_buy_kill", merged.get("bb_buy_kill", 0.3))),
         bb_sell_kill=float(p.get("bb_sell_kill", merged.get("bb_sell_kill", 0.7))),
         min_volatility_pct=float(p.get("min_volatility_pct", merged.get("min_volatility_pct", 0.0))),
+        volume_period=int(p.get("volume_period", merged.get("volume_period", 0))),
+        volume_confirm_ratio=float(p.get("volume_confirm_ratio", merged.get("volume_confirm_ratio", 1.5))),
+        volume_weaken_ratio=float(p.get("volume_weaken_ratio", merged.get("volume_weaken_ratio", 0.6))),
     )
 
 
@@ -823,6 +826,10 @@ def reversal_params_from_body(body: dict, symbol: str | None = None) -> Reversal
         min_score=float(p.get("min_score", merged.get("min_score", 0.5))),
         strong_score=float(p.get("strong_score", merged.get("strong_score", 0.8))),
         cooldown_bars=int(p.get("cooldown_bars", merged.get("cooldown_bars", 2))),
+        volume_period=int(p.get("volume_period", merged.get("volume_period", 0))),
+        volume_confirm_ratio=float(p.get("volume_confirm_ratio", merged.get("volume_confirm_ratio", 1.5))),
+        volume_weaken_ratio=float(p.get("volume_weaken_ratio", merged.get("volume_weaken_ratio", 0.6))),
+        volume_weight=float(p.get("volume_weight", merged.get("volume_weight", 0.15))),
     )
 
 

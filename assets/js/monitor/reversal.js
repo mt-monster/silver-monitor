@@ -17,7 +17,7 @@
    * @param {Object} params  反转参数（来自 monitor.config.json reversal 段）
    * @returns {Object|null}
    */
-  Monitor.calcReversal = function (series, params) {
+  Monitor.calcReversal = function (series, params, volumes) {
     const p = params || {};
     const rsiP = p.rsi_period || 14;
     const bbP = p.bb_period || 20;
@@ -74,11 +74,36 @@
       devScore = deviationPct < 0 ? raw : -raw;
     }
 
+    // 成交量融合
+    let volumeRatio = null;
+    const volPeriod = p.volume_period || 0;
+    if (volPeriod > 0 && volumes && volumes.length >= volPeriod) {
+      const volEma = Monitor.ema(volumes, volPeriod);
+      if (volEma && volEma.length > 0) {
+        const lastVolEma = volEma[volEma.length - 1];
+        if (lastVolEma != null && lastVolEma > 0) {
+          const vr = volumes[volumes.length - 1] / lastVolEma;
+          if (!Number.isFinite(vr) || vr < 0) return;
+          volumeRatio = vr;
+          let volumeScore = 0;
+          const cr = p.volume_confirm_ratio != null ? p.volume_confirm_ratio : 1.5;
+          const wr = p.volume_weaken_ratio != null ? p.volume_weaken_ratio : 0.6;
+          if (volumeRatio > cr) {
+            if (totalScore > 0) volumeScore = Math.min(1.0, (volumeRatio - 1.0) / (cr - 1.0));
+            else if (totalScore < 0) volumeScore = -Math.min(1.0, (volumeRatio - 1.0) / (cr - 1.0));
+          } else if (volumeRatio < wr) {
+            if (totalScore > 0) volumeScore = -0.5;
+            else if (totalScore < 0) volumeScore = 0.5;
+          }
+          totalScore += volumeScore * (p.volume_weight || 0.15);
+        }
+      }
+    }
+
     // 加权综合得分
     const wRsi = p.rsi_weight || 0.4;
     const wBb = p.bb_weight || 0.35;
     const wDev = p.deviation_weight || 0.25;
-    const totalScore = rsiScore * wRsi + bbScore * wBb + devScore * wDev;
     const absScore = Math.abs(totalScore);
     const minScore = p.min_score || 0.5;
     const strongScore = p.strong_score || 0.8;
@@ -97,6 +122,7 @@
       strength: Math.min(100, absScore * 100),
       rsi: rsiVal,
       bb: bbNow,
+      volumeRatio,
     };
   };
 
@@ -170,6 +196,16 @@
       devEl.innerHTML = `<span class="val ${cls}">${d >= 0 ? "+" : ""}${d.toFixed(3)}%</span>`;
     }
 
+    // 成交量比率渲染
+    const volEl = el(prefix + "RvVolRatio");
+    if (volEl && info.volumeRatio != null) {
+      const vr = info.volumeRatio;
+      const vcls = vr > 1.5 ? "up" : vr < 0.6 ? "down" : "";
+      volEl.innerHTML = `<span class="val ${vcls}">${vr.toFixed(2)}x</span>`;
+    } else if (volEl) {
+      volEl.textContent = "--";
+    }
+
     bar.style.width = info.strength.toFixed(0) + "%";
     bar.className = "signal-bar-inner " + (info.signal.includes("buy") ? "bull" : info.signal.includes("sell") ? "bear" : "flat");
 
@@ -197,8 +233,11 @@
 
     // fallback 时也优先使用后端 realtimeBacktestBuffers（1秒采样），确保前后端使用同一序列
     const _rtSeries = (buf) => (buf && buf.length >= 2) ? buf.map(p => ({ x: p.t, y: p.y })) : null;
+    const _rtVolumes = (buf) => (buf && buf.length >= 2) ? buf.map(p => p.v).filter(v => v != null) : [];
     const huSeries = _rtSeries(rtBuffers.ag0) || app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const huVolumes = _rtVolumes(rtBuffers.ag0).length > 0 ? _rtVolumes(rtBuffers.ag0) : app.silverLivePoints.map(p => p.v).filter(v => v != null);
     const coSeries = _rtSeries(rtBuffers.xag) || app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const coVolumes = _rtVolumes(rtBuffers.xag).length > 0 ? _rtVolumes(rtBuffers.xag) : app.comexSilverLivePoints.map(p => p.v).filter(v => v != null);
 
     const huParams = Monitor.getReversalParams("huyin");
     const coParams = Monitor.getReversalParams("comex");
@@ -206,8 +245,8 @@
     // 有效性检查：后端信号需包含至少 signal 或 rsi 等字段
     const _valid = s => s && (s.signal != null || s.score != null || s.rsi != null);
 
-    const huSig = _valid(backendRv.ag0) ? backendRv.ag0 : Monitor.calcReversal(huSeries, huParams);
-    const coSig = _valid(backendRv.xag) ? backendRv.xag : Monitor.calcReversal(coSeries, coParams);
+    const huSig = _valid(backendRv.ag0) ? backendRv.ag0 : Monitor.calcReversal(huSeries, huParams, huVolumes);
+    const coSig = _valid(backendRv.xag) ? backendRv.xag : Monitor.calcReversal(coSeries, coParams, coVolumes);
 
     if (huSig && Monitor.reversal.hu.last !== huSig.signal) {
       Monitor.playSignalTone(huSig.signal);

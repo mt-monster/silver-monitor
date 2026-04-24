@@ -43,12 +43,15 @@
    * 按时间窗口入队：同一窗口内覆写末条价格（取最新值），跨窗口时追加新 bar。
    * windowMs 读取 Monitor.constants.BAR_WINDOW_MS（由 monitor.config.json frontend.bar_window_ms 设置），缺省 30000ms。
    */
-  Monitor._pushByTimeWindow = function (arr, price, ts, cap) {
+  Monitor._pushByTimeWindow = function (arr, price, ts, cap, volume) {
     const windowMs = (Monitor.constants && Monitor.constants.BAR_WINDOW_MS) || 30000;
     if (arr.length > 0 && ts - arr[arr.length - 1].t < windowMs) {
       arr[arr.length - 1].y = price;
+      if (volume != null) arr[arr.length - 1].v = volume;
     } else {
-      arr.push({ t: ts, y: price });
+      const pt = { t: ts, y: price };
+      if (volume != null) pt.v = volume;
+      arr.push(pt);
       while (arr.length > cap) arr.shift();
     }
   };
@@ -100,7 +103,27 @@
 
   /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 */
 
-  Monitor.calcMomentum = function (series, shortP, longP, thresholds) {
+  /** 成交量确认/降级（与后端 _fuse_with_volume 对齐） */
+  function _fuseWithVolume(signal, volumeRatio, confirmRatio, weakenRatio) {
+    const cr = confirmRatio != null ? confirmRatio : 1.5;
+    const wr = weakenRatio != null ? weakenRatio : 0.6;
+    if (signal === "strong_buy") {
+      if (volumeRatio < wr) return "buy";
+    } else if (signal === "buy") {
+      if (volumeRatio < wr) return "neutral";
+      if (volumeRatio > cr) return "strong_buy";
+    } else if (signal === "strong_sell") {
+      if (volumeRatio < wr) return "sell";
+    } else if (signal === "sell") {
+      if (volumeRatio < wr) return "neutral";
+      if (volumeRatio > cr) return "strong_sell";
+    }
+    return signal;
+  }
+
+  /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 + 成交量确认 */
+
+  Monitor.calcMomentum = function (series, shortP, longP, thresholds, volumes) {
 
     if (!series || series.length < longP * 2) return null;
 
@@ -184,8 +207,26 @@
           }
           if (bbNow.bandwidth <= minBW) squeeze = true;
         }
+        // Squeeze Break: 前一根缩口 + 当前不缩口 + 带宽扩张 → 方向选择突破
+        let squeezeBreak = false;
+        if (vals.length > bbP * 2 + 1) {
+          let prevMinBW = Infinity;
+          for (let j = 0; j < bbP; j++) {
+            const end = vals.length - 1 - j;
+            if (end >= bbP) {
+              const bj = Monitor.bollingerAt(vals.slice(0, end), bbP, bbM);
+              if (bj) prevMinBW = Math.min(prevMinBW, bj.bandwidth);
+            }
+          }
+          const bbPrevBar = Monitor.bollingerAt(vals.slice(0, -1), bbP, bbM);
+          const prevSqueeze = bbPrevBar && bbPrevBar.bandwidth <= prevMinBW;
+          squeezeBreak = prevSqueeze && !squeeze && bwExpanding;
+        }
+        if (squeezeBreak && (signal === "buy" || signal === "sell")) {
+          signal = signal === "buy" ? "strong_buy" : "strong_sell";
+        }
 
-        bb = { ...bbNow, bwExpanding, squeeze };
+        bb = { ...bbNow, bwExpanding, squeeze, squeezeBreak };
 
       }
 
@@ -199,6 +240,23 @@
     if (rsiP > 0 && vals.length >= rsiP + 1) {
       rsi = Monitor.rsiAt(vals, rsiP);
       if (rsi != null) signal = _fuseWithRSI(signal, rsi);
+    }
+
+    // 成交量确认/降级
+    let volumeRatio = null;
+    const volPeriod = th.volumePeriod || 0;
+    if (volPeriod > 0 && volumes && volumes.length >= volPeriod) {
+      const volEma = Monitor.ema(volumes, volPeriod);
+      if (volEma && volEma.length > 0) {
+        const lastVolEma = volEma[volEma.length - 1];
+        if (lastVolEma != null && lastVolEma > 0) {
+          const vr = volumes[volumes.length - 1] / lastVolEma;
+          if (Number.isFinite(vr) && vr >= 0) {
+            volumeRatio = vr;
+            signal = _fuseWithVolume(signal, volumeRatio, th.volumeConfirmRatio, th.volumeWeakenRatio);
+          }
+        }
+      }
     }
 
     return {
@@ -218,6 +276,8 @@
       bb,
 
       rsi,
+
+      volumeRatio,
 
     };
 
@@ -376,7 +436,9 @@
 
         const b = info.bb.percentB;
 
-        if (info.bb.squeeze) note += " | Boll缩口";
+        if (info.bb.squeezeBreak) note += " | Squeeze突破";
+
+        else if (info.bb.squeeze) note += " | Boll缩口";
 
         else if (b > 1.0) note += " | 超买";
 
@@ -398,6 +460,30 @@
       rsiEl.innerHTML = `<span class="val ${rcls}">${r.toFixed(1)}</span>`;
     } else if (rsiEl) {
       rsiEl.textContent = "--";
+    }
+
+    // 成交量比率渲染
+    const volEl = findEl(prefix + "VolRatio");
+    if (volEl && info.volumeRatio != null) {
+      const vr = info.volumeRatio;
+      const vcls = vr > 1.5 ? "up" : vr < 0.6 ? "down" : "";
+      volEl.innerHTML = `<span class="val ${vcls}">${vr.toFixed(2)}x</span>`;
+    } else if (volEl) {
+      volEl.textContent = "--";
+    }
+
+    // Squeeze 状态渲染
+    const sqEl = findEl(prefix + "Squeeze");
+    if (sqEl && info.bb) {
+      if (info.bb.squeezeBreak) {
+        sqEl.innerHTML = `<span class="val up">突破</span>`;
+      } else if (info.bb.squeeze) {
+        sqEl.innerHTML = `<span class="val">缩口</span>`;
+      } else {
+        sqEl.textContent = "--";
+      }
+    } else if (sqEl) {
+      sqEl.textContent = "--";
     }
 
   };
@@ -472,8 +558,10 @@
     const co = data.comex;
 
     const huSeries = app.silverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const huVolumes = app.silverLivePoints.map(p => p.v).filter(v => v != null);
 
     const coSeries = app.comexSilverLivePoints.map(p => ({ x: p.t, y: p.y }));
+    const coVolumes = app.comexSilverLivePoints.map(p => p.v).filter(v => v != null);
 
     // 使用品种特定的周期和阈值参数
     const huP = Monitor.getMomentumPeriods("huyin");
@@ -481,9 +569,9 @@
     const coP = Monitor.getMomentumPeriods("comex");
 
     const _valid = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
-    const huSig = _valid(backendSignals.ag0) ? backendSignals.ag0 : Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"));
+    const huSig = _valid(backendSignals.ag0) ? backendSignals.ag0 : Monitor.calcMomentum(huSeries, huP.shortP, huP.longP, Monitor.getMomentumThresholds("huyin"), huVolumes);
 
-    const coSig = _valid(backendSignals.xag) ? backendSignals.xag : Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"));
+    const coSig = _valid(backendSignals.xag) ? backendSignals.xag : Monitor.calcMomentum(coSeries, coP.shortP, coP.longP, Monitor.getMomentumThresholds("comex"), coVolumes);
 
 
 
@@ -522,8 +610,10 @@
     const cg = data.comexGold;
 
     const auSeries = (app.goldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const auVolumes = (app.goldLivePoints || []).map(p => p.v).filter(v => v != null);
 
     const cgSeries = (app.comexGoldLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const cgVolumes = (app.comexGoldLivePoints || []).map(p => p.v).filter(v => v != null);
 
     // 使用品种特定的周期和阈值参数
     const auP = Monitor.getMomentumPeriods("hujin");
@@ -531,9 +621,9 @@
     const cgP = Monitor.getMomentumPeriods("comex_gold");
 
     const _valid2 = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
-    const auSig = _valid2(backendSignals.au0) ? backendSignals.au0 : Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"));
+    const auSig = _valid2(backendSignals.au0) ? backendSignals.au0 : Monitor.calcMomentum(auSeries, auP.shortP, auP.longP, Monitor.getMomentumThresholds("hujin"), auVolumes);
 
-    const cgSig = _valid2(backendSignals.xau) ? backendSignals.xau : Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"));
+    const cgSig = _valid2(backendSignals.xau) ? backendSignals.xau : Monitor.calcMomentum(cgSeries, cgP.shortP, cgP.longP, Monitor.getMomentumThresholds("comex_gold"), cgVolumes);
 
 
 
@@ -565,9 +655,10 @@
     const backendSignals = data.signals || data._signals || Monitor.instrumentSignals || {};
     const btc = data.btc;
     const btcSeries = (app.btcLivePoints || []).map(p => ({ x: p.t, y: p.y }));
+    const btcVolumes = (app.btcLivePoints || []).map(p => p.v).filter(v => v != null);
     const btcP = Monitor.getMomentumPeriods("btc");
     const _valid3 = s => s && s.slopePct != null && s.shortEMA != null && s.longEMA != null;
-    const btcSig = _valid3(backendSignals.btc) ? backendSignals.btc : Monitor.calcMomentum(btcSeries, btcP.shortP, btcP.longP, Monitor.getMomentumThresholds("btc"));
+    const btcSig = _valid3(backendSignals.btc) ? backendSignals.btc : Monitor.calcMomentum(btcSeries, btcP.shortP, btcP.longP, Monitor.getMomentumThresholds("btc"), btcVolumes);
 
     if (btcSig && Monitor.momentum.btc.last !== btcSig.signal) {
       Monitor.playSignalTone(btcSig.signal);

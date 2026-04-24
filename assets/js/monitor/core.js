@@ -145,6 +145,9 @@
         cooldownBars: Number(s.cooldown_bars ?? defaults.cooldown_bars ?? 0),
         bbBuyKill: Number(s.bb_buy_kill ?? defaults.bb_buy_kill ?? 0.3),
         bbSellKill: Number(s.bb_sell_kill ?? defaults.bb_sell_kill ?? 0.7),
+        volumePeriod: Number(s.volume_period ?? defaults.volume_period ?? 0),
+        volumeConfirmRatio: Number(s.volume_confirm_ratio ?? defaults.volume_confirm_ratio ?? 1.5),
+        volumeWeakenRatio: Number(s.volume_weaken_ratio ?? defaults.volume_weaken_ratio ?? 0.6),
       };
     });
 
@@ -182,6 +185,9 @@
             cooldownBars: Number(rt.cooldown_bars ?? rtDefaults.cooldown_bars ?? Monitor.momentumThresholds[symbol].cooldownBars),
             bbBuyKill: Number(rt.bb_buy_kill ?? rtDefaults.bb_buy_kill ?? Monitor.momentumThresholds[symbol].bbBuyKill),
             bbSellKill: Number(rt.bb_sell_kill ?? rtDefaults.bb_sell_kill ?? Monitor.momentumThresholds[symbol].bbSellKill),
+            volumePeriod: Number(rt.volume_period ?? rtDefaults.volume_period ?? Monitor.momentumThresholds[symbol].volumePeriod),
+            volumeConfirmRatio: Number(rt.volume_confirm_ratio ?? rtDefaults.volume_confirm_ratio ?? Monitor.momentumThresholds[symbol].volumeConfirmRatio),
+            volumeWeakenRatio: Number(rt.volume_weaken_ratio ?? rtDefaults.volume_weaken_ratio ?? Monitor.momentumThresholds[symbol].volumeWeakenRatio),
           };
         }
         if (Monitor.momentumPeriods[symbol]) {
