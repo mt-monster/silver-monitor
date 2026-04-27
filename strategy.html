@@ -466,6 +466,45 @@
     </div>
   </div>
 
+  <!-- ══ 纸交易绩效 ══ -->
+  <div class="card strategy-panel" style="margin-top:16px" id="paperTradingPanel">
+    <div class="card-label">
+      📊 实盘纸交易绩效
+      <span class="badge" style="cursor:pointer" onclick="refreshPaperTrading()">刷新</span>
+      <span class="badge" style="cursor:pointer" onclick="resetPaperTrading()">重置</span>
+    </div>
+    <div class="strategy-form">
+      <label>品种
+        <select id="ptSymbolSelect">
+          <option value="">全部品种</option>
+          <option value="ag0">沪银 (AG0)</option>
+          <option value="xag">COMEX 银 (XAG)</option>
+          <option value="au0">沪金 (AU0)</option>
+          <option value="xau">COMEX 金 (XAU)</option>
+          <option value="btc">BTC</option>
+        </select>
+      </label>
+      <label>时间窗口
+        <select id="ptWindowSelect">
+          <option value="3600">最近1小时</option>
+          <option value="86400" selected>最近24小时</option>
+          <option value="604800">最近7天</option>
+        </select>
+      </label>
+    </div>
+    <div class="metric-grid" id="ptMetricGrid" style="display:none"></div>
+    <div class="strategy-meta" id="ptActiveTrades"></div>
+    <div class="trades-wrap" id="ptTradesWrap" style="display:none;margin-top:12px">
+      <div class="card-label" style="margin-bottom:8px">最近交易记录</div>
+      <table>
+        <thead>
+          <tr><th>品种</th><th>信号</th><th>入场价</th><th>出场价</th><th>盈亏%</th><th>持仓秒</th><th>原因</th></tr>
+        </thead>
+        <tbody id="ptTradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ══ Walk-Forward 结果 ══ -->
   <div class="card strategy-panel" id="wfPanel" style="display:none;margin-top:16px">
     <div class="card-label">Walk-Forward 验证</div>

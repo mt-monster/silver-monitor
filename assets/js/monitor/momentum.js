@@ -45,12 +45,28 @@
    */
   Monitor._pushByTimeWindow = function (arr, price, ts, cap, volume) {
     const windowMs = (Monitor.constants && Monitor.constants.BAR_WINDOW_MS) || 30000;
+    let deltaVol = volume;
+    if (volume != null) {
+      if (arr === app.silverLivePoints) {
+        // 沪银：Sina 返回累计成交量，需转增量
+        Monitor._lastCumulativeVolumes = Monitor._lastCumulativeVolumes || {};
+        const last = Monitor._lastCumulativeVolumes['ag0'];
+        if (last != null && volume >= last) {
+          deltaVol = volume - last;
+        }
+        Monitor._lastCumulativeVolumes['ag0'] = volume;
+      } else if (arr === app.comexSilverLivePoints) {
+        // COMEX银：Infoway 已聚合为秒级增量，直接取用
+        deltaVol = volume;
+      }
+      // 其他品种不处理 volume
+    }
     if (arr.length > 0 && ts - arr[arr.length - 1].t < windowMs) {
       arr[arr.length - 1].y = price;
-      if (volume != null) arr[arr.length - 1].v = volume;
+      if (deltaVol != null) arr[arr.length - 1].v = deltaVol;
     } else {
       const pt = { t: ts, y: price };
-      if (volume != null) pt.v = volume;
+      if (deltaVol != null) pt.v = deltaVol;
       arr.push(pt);
       while (arr.length > cap) arr.shift();
     }

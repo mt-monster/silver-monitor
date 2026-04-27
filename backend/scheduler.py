@@ -70,18 +70,18 @@ def start_scheduler() -> BackgroundScheduler | None:
             log.info("[Scheduler] Already running")
             return _scheduler
         try:
-            sched = BackgroundScheduler(timezone=str(CST))
+            sched = BackgroundScheduler(timezone=CST)
             # 每天 04:00 CST 执行扫描
             sched.add_job(
                 _daily_scan_job,
-                trigger=CronTrigger(hour=4, minute=0, timezone=str(CST)),
+                trigger=CronTrigger(hour=4, minute=0, timezone=CST),
                 id="daily_5min_scan",
                 replace_existing=True,
             )
             # 每天 04:30 CST 执行 tick 清理
             sched.add_job(
                 _daily_cleanup_job,
-                trigger=CronTrigger(hour=4, minute=30, timezone=str(CST)),
+                trigger=CronTrigger(hour=4, minute=30, timezone=CST),
                 id="daily_tick_cleanup",
                 replace_existing=True,
             )

@@ -253,6 +253,37 @@ class ReversalVolumeTestCase(unittest.TestCase):
         self.assertIsNotNone(info)
         self.assertNotIn("volumeRatio", info)
 
+    def test_volume_confirm_boosts_to_strong_signal(self):
+        """放量应能将 buy 信号升级为 strong_buy。"""
+        base = 100.0
+        # 连续急跌使 RSI 深度超卖，然后小幅反弹（价格仍低于 EMA）
+        vals = [base] * 5
+        for i in range(25):
+            vals.append(vals[-1] - 0.8)
+        for i in range(10):
+            vals.append(vals[-1] + 0.3)
+        # 低门槛，让基础分刚好达到 buy 但未达 strong_buy
+        p = ReversalParams(
+            rsi_period=7, min_score=0.20, strong_score=0.60,
+            deviation_entry=0.01, deviation_strong=0.05,
+            volume_period=0, volume_weight=0.15
+        )
+        base_info = calc_reversal(vals, p)
+        self.assertIsNotNone(base_info)
+        self.assertIn(base_info["signal"], ("buy", "strong_buy"))
+        # 放量
+        vol_high = [100.0] * 39 + [300.0]
+        p_vol = ReversalParams(
+            rsi_period=7, min_score=0.20, strong_score=0.60,
+            deviation_entry=0.01, deviation_strong=0.05,
+            volume_period=10, volume_confirm_ratio=1.5,
+            volume_weaken_ratio=0.6, volume_weight=0.15
+        )
+        vol_info = calc_reversal(vals, p_vol, volumes=vol_high)
+        self.assertIsNotNone(vol_info)
+        # 放量后得分应更高
+        self.assertGreater(vol_info["score"], base_info["score"])
+
 
 class ReversalParamsTestCase(unittest.TestCase):
     """参数配置测试。"""

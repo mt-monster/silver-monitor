@@ -26,9 +26,20 @@ from backend.infoway import fetch_comex_silver_infoway, fetch_comex_gold_infoway
 from backend.state import state
 from backend.strategies.momentum import calc_momentum, _apply_signal_cooldown
 from backend.utils import get_conv, get_conv_gold
+from backend.paper_trading import paper_trading_tracker
+from backend.strategies.adaptive import adapt_threshold, adapt_min_score
 
 # 时间窗口采样：每个 bar 代表固定时长内的最新价格（毫秒）
 BAR_WINDOW_MS: int = int(RUNTIME_CONFIG.get("frontend", {}).get("bar_window_ms", 30000))
+
+# 各品种当前价快捷读取
+_INSTRUMENT_PRICE_GETTERS = {
+    "ag0": lambda: (state.silver_cache.get("data") or {}).get("price"),
+    "xag": lambda: (state.comex_silver_cache.get("data") or {}).get("price"),
+    "au0": lambda: (state.gold_cache.get("data") or {}).get("price"),
+    "xau": lambda: (state.comex_gold_cache.get("data") or {}).get("price"),
+    "btc": lambda: (state.btc_cache.get("data") or {}).get("price"),
+}
 
 
 # ── 数据源动态分发 ──────────────────────────────────────────────
@@ -129,6 +140,10 @@ def _recompute_signals(inst_ids: list[str]):
             vols = [p.get("v", 0) for p in rt_buf if p.get("v") is not None]
             params = _momentum_params_for(iid)
             if len(buf) >= params.long_p + 2:
+                # 自适应波动率阈值
+                if len(buf) >= 21:
+                    params.spread_entry = adapt_threshold(params.spread_entry, buf)
+                    params.slope_entry = adapt_threshold(params.slope_entry, buf)
                 raw = calc_momentum(buf, params, vols if vols else None)
                 if raw:
                     sig = raw["signal"]
@@ -214,6 +229,9 @@ def _recompute_reversal_signals(inst_ids: list[str]):
             min_len = max(params.rsi_period + 1, params.bb_period, params.ema_period) + 2
             if len(buf) >= min_len:
                 try:
+                    # 自适应波动率阈值：高波动期提高 min_score
+                    if len(buf) >= 21:
+                        params.min_score = adapt_min_score(params.min_score, buf)
                     raw = calc_reversal(buf, params, vols if vols else None)
                     if raw:
                         sig = raw["signal"]
@@ -423,6 +441,7 @@ class FastDataPoller(threading.Thread):
                                     "open": co_fast.get("open"),
                                     "high": co_fast.get("high"),
                                     "low": co_fast.get("low"),
+                                    "volume": co_fast.get("volume", 0),
                                     "timestamp": co_fast["timestamp"],
                                     "datetime_cst": co_fast.get("datetime_cst", ""),
                                     "usdCny": co_fast.get("usdCny", state.usd_cny_cache["rate"]),
@@ -606,6 +625,16 @@ class FastDataPoller(threading.Thread):
                 _recompute_signals(["ag0", "xag", "au0", "xau", "btc"])
                 _recompute_reversal_signals(["ag0", "xag", "au0", "xau", "btc"])
                 _recompute_mtf_and_combined(["ag0", "xag", "au0", "xau", "btc"])
+
+                # ── 纸交易追踪：先检查止损/止盈，再处理信号变化 ──
+                for iid in ("ag0", "xag", "au0", "xau", "btc"):
+                    price = _INSTRUMENT_PRICE_GETTERS[iid]()
+                    if price:
+                        paper_trading_tracker.on_price_tick(iid, price)
+                        combined = state.instrument_combined_signals.get(iid)
+                        if combined:
+                            paper_trading_tracker.on_combined_signal(iid, price, combined)
+
                 rebuild_all_cache()
                 state.data_version += 1
                 _notify_sse("data", _build_sse_snapshot())
@@ -849,8 +878,23 @@ def _buffer_precious_prices():
             rt_buf = state.realtime_backtest_buffers.get(inst_id, [])
             pt = {"t": ts_ms, "y": px}
             vol = d.get("volume")
+            source = d.get("source", "")
             if vol is not None:
-                pt["v"] = vol
+                # 按数据源配套处理 volume：
+                # - Sina 沪银：累计成交量 → 秒级增量
+                # - Infoway COMEX银：逐笔已聚合为秒级增量，直接取用
+                # - 其他：volume 不可用，不存入
+                if inst_id == "ag0" and "Sina" in source:
+                    last_vol = state.last_cumulative_volumes.get(inst_id)
+                    if last_vol is not None and vol >= last_vol:
+                        delta = vol - last_vol
+                    else:
+                        delta = vol
+                    pt["v"] = delta
+                    state.last_cumulative_volumes[inst_id] = vol
+                elif inst_id == "xag" and "Infoway" in source:
+                    pt["v"] = vol
+                # iFinD 或其他无有效 volume 的数据源：忽略
             rt_buf.append(pt)
             if len(rt_buf) > 300:
                 rt_buf = rt_buf[-300:]

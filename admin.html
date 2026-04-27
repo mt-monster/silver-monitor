@@ -236,13 +236,20 @@ async function testSources() {
   btn.disabled = true;
   document.getElementById('testIcon').innerHTML = '<span class="spinner"></span>';
 
-  // Show placeholder rows
-  const placeholders = ['Sina', 'iFinD', 'Infoway-贵金属', 'Infoway-加密货币'];
-  rows.innerHTML = placeholders.map(name =>
+  // Show placeholder rows (grouped by instrument)
+  const placeholders = [
+    { inst: '沪银 AG0', src: 'Sina' },
+    { inst: '沪银 AG0', src: 'iFinD' },
+    { inst: 'COMEX银 XAG', src: 'Sina' },
+    { inst: 'COMEX银 XAG', src: 'iFinD' },
+    { inst: 'COMEX银 XAG', src: 'Infoway' },
+    { inst: '系统', src: 'Infoway-WS' },
+  ];
+  rows.innerHTML = placeholders.map(p =>
     `<div class="source-row">
        <span class="source-badge testing"></span>
-       <span class="source-name">${name}</span>
-       <span class="source-detail">测试中…</span>
+       <span class="source-name">${p.src}</span>
+       <span class="source-detail">${p.inst} — 测试中…</span>
        <span class="source-latency"></span>
      </div>`
   ).join('');
@@ -252,13 +259,15 @@ async function testSources() {
     const resp = await fetch(`${API}/api/admin/test-sources`, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
+      const instLabels = { ag0: '沪银', xag: 'COMEX银', system: '系统' };
       rows.innerHTML = data.results.map(r => {
         const cls = r.ok ? 'ok' : 'fail';
         const latency = r.latency_ms > 0 ? `${r.latency_ms}ms` : '';
+        const instName = instLabels[r.instrument] || r.instrument;
         return `<div class="source-row">
                   <span class="source-badge ${cls}"></span>
                   <span class="source-name">${r.source}</span>
-                  <span class="source-detail">${r.detail}</span>
+                  <span class="source-detail">${instName} — ${r.detail}</span>
                   <span class="source-latency">${latency}</span>
                 </div>`;
       }).join('');

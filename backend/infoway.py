@@ -12,11 +12,9 @@ WebSocket URL: wss://data.infoway.io/ws?business={business}&apikey={api_key}
   infoway_ws_crypto: crypto 业务线（加密货币）
 """
 
-import asyncio
 import json
 import threading
 import time
-import uuid
 from datetime import datetime
 
 from backend.config import CST, RUNTIME_CONFIG, log
@@ -33,15 +31,16 @@ def _cfg_crypto() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Optional websockets import
+# Optional websocket-client import
 # ---------------------------------------------------------------------------
 
-_HAS_WEBSOCKETS = False
+_HAS_WS_CLIENT = False
 try:
-    import websockets
-    _HAS_WEBSOCKETS = True
+    import websocket
+    _HAS_WS_CLIENT = True
 except ImportError:
     pass
+
 
 # ---------------------------------------------------------------------------
 # Thread-safe cache — common (precious metals)
@@ -53,6 +52,9 @@ _connected = False
 _stop_event = threading.Event()
 _thread: threading.Thread | None = None
 
+# 逐笔 volume 秒级聚合器：symbol → (current_second_ts, accumulated_volume)
+_volume_accumulator: dict[str, tuple[int, float]] = {}
+
 # ---------------------------------------------------------------------------
 # Thread-safe cache — crypto
 # ---------------------------------------------------------------------------
@@ -62,6 +64,9 @@ _crypto_quotes: dict[str, dict] = {}
 _crypto_connected = False
 _crypto_stop_event = threading.Event()
 _crypto_thread: threading.Thread | None = None
+
+# Crypto 逐笔 volume 秒级聚合器
+_crypto_volume_accumulator: dict[str, tuple[int, float]] = {}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,76 +82,87 @@ def _flt(v) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# WebSocket background runner
+# WebSocket background runner (同步 websocket-client)
 # ---------------------------------------------------------------------------
 
-async def _ws_loop(url: str, symbols: list[str], stop_event: threading.Event,
-                   on_trade, set_connected):
-    backoff = 1.0
+def _ws_loop_sync(url: str, symbols: list[str], stop_event: threading.Event,
+                  on_trade, set_connected):
+    """同步 WebSocket 消息循环，使用 websocket-client 库。"""
+    import websocket
 
-    def _trace():
-        return uuid.uuid4().hex[:12]
-
-    while not stop_event.is_set():
+    def on_message(ws, message):
         try:
-            async with websockets.connect(url, close_timeout=5) as ws:
-                set_connected(True)
-                backoff = 1.0
-                log.info(f"[Infoway] WebSocket connected: {url[:60]}...")
+            msg = json.loads(message)
+            code = msg.get("code")
+            if code in (10001, 10002):
+                on_trade(msg)
+            elif code == 10010:
+                pass
+            else:
+                log.debug(f"[Infoway/WS] code={code}")
+        except json.JSONDecodeError:
+            pass
 
-                # drain greeting
+    def on_open(ws):
+        set_connected(True)
+        codes = ",".join(symbols)
+        ws.send(json.dumps({
+            "code": 10000,
+            "trace": "trace",
+            "data": {"codes": codes},
+        }))
+        log.info(f"[Infoway] Subscribed trade: {codes}")
+
+        # 启动心跳线程
+        def heartbeat():
+            while not stop_event.is_set():
+                time.sleep(30)
                 try:
-                    init = await asyncio.wait_for(ws.recv(), timeout=5)
-                    log.debug(f"[Infoway/init] {str(init)[:200]}")
-                except asyncio.TimeoutError:
-                    pass
+                    if ws.sock and ws.sock.connected:
+                        ws.send(json.dumps({"code": 10010, "trace": "trace"}))
+                except Exception:
+                    return
+        threading.Thread(target=heartbeat, daemon=True, name="infoway-hb").start()
 
-                # subscribe trade
-                codes = ",".join(symbols)
-                await ws.send(json.dumps({
-                    "code": 10000,
-                    "trace": _trace(),
-                    "data": {"codes": codes},
-                }))
-                log.info(f"[Infoway] Subscribed trade: {codes}")
+    def on_close(ws, close_status_code, close_msg):
+        set_connected(False)
+        log.info(f"[Infoway] Connection closed: {close_status_code} {close_msg}")
 
-                # heartbeat + message loop
-                async def _heartbeat():
-                    while not stop_event.is_set():
-                        try:
-                            await ws.send(json.dumps({"code": 10010, "trace": _trace()}))
-                        except Exception:
-                            return
-                        await asyncio.sleep(30)
+    def on_error(ws, error):
+        log.warning(f"[Infoway] WS error: {error}")
 
-                async def _recv():
-                    async for raw in ws:
-                        try:
-                            msg = json.loads(raw)
-                            code = msg.get("code")
-                            if code in (10001, 10002):  # 10001=SUB_ACK/TRADE, 10002=TRADE_PUSH
-                                on_trade(msg)
-                            elif code == 10010:     # HEARTBEAT
-                                pass
-                            else:
-                                log.debug(f"[Infoway/WS] code={code}")
-                        except json.JSONDecodeError:
-                            pass
-
-                await asyncio.gather(_heartbeat(), _recv())
+    backoff = 1.0
+    while not stop_event.is_set():
+        set_connected(False)
+        try:
+            ws = websocket.WebSocketApp(
+                url,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            ws.run_forever(ping_interval=0)
         except Exception as exc:
-            set_connected(False)
-            if stop_event.is_set():
-                break
-            log.warning(f"[Infoway] WS error: {exc}, reconnecting in {backoff:.0f}s")
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30.0)
+            log.warning(f"[Infoway] run_forever error: {exc}")
+
+        if stop_event.is_set():
+            break
+
+        log.warning(f"[Infoway] Reconnecting in {backoff:.0f}s...")
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 30.0)
 
     set_connected(False)
 
 
-def _make_on_trade(lock: threading.Lock, quotes: dict):
-    """创建 trade 处理回调，绑定到指定的 lock 和 quotes 缓存。"""
+# ---------------------------------------------------------------------------
+# Trade callbacks
+# ---------------------------------------------------------------------------
+
+def _make_on_trade(lock: threading.Lock, quotes: dict,
+                    accumulator: dict[str, tuple[int, float]]):
+    """创建 trade 处理回调，绑定到指定的 lock、quotes 缓存和 volume 聚合器。"""
     def _on_trade(msg: dict):
         data = msg.get("data")
         if data is None:
@@ -157,8 +173,19 @@ def _make_on_trade(lock: threading.Lock, quotes: dict):
                 continue
             symbol = item.get("s") or item.get("symbol") or item.get("S", "")
             price = _flt(item.get("p") or item.get("price") or item.get("c"))
-            if not symbol or not price or price <= 0:
+            if not symbol or price is None or price <= 0:
                 continue
+            vol = _flt(item.get("v") or item.get("volume"))
+            ts_ms = int(_flt(item.get("t") or item.get("time")) or time.time() * 1000)
+            ts_sec = int(ts_ms / 1000)
+            sym_upper = symbol.upper()
+            # 秒级 volume 聚合
+            last_sec, acc = accumulator.get(sym_upper, (0, 0.0))
+            if ts_sec != last_sec:
+                acc = 0.0
+            if vol:
+                acc += vol
+            accumulator[sym_upper] = (ts_sec, acc)
             quote = {
                 "symbol": symbol,
                 "price": price,
@@ -166,14 +193,102 @@ def _make_on_trade(lock: threading.Lock, quotes: dict):
                 "low": _flt(item.get("l") or item.get("low")),
                 "open": _flt(item.get("o") or item.get("open")),
                 "prev_close": _flt(item.get("pc") or item.get("preClose")),
-                "volume": _flt(item.get("v") or item.get("volume")),
-                "timestamp": int(_flt(item.get("t") or item.get("time")) or time.time() * 1000),
+                "volume": acc,   # 当前秒累计成交量
+                "timestamp": ts_ms,
                 "_raw_ts": time.time(),
             }
             with lock:
-                quotes[symbol.upper()] = quote
-            log.debug(f"[Infoway/trade] {symbol}={price}")
+                quotes[sym_upper] = quote
+            log.debug(f"[Infoway/trade] {symbol}={price} vol={acc}")
     return _on_trade
+
+
+# symbol_upper -> (lock, quotes, accumulator, which)
+_SymbolRegistry = dict[str, tuple[threading.Lock, dict, dict, str]]
+
+
+def _make_merged_on_trade(registry: _SymbolRegistry):
+    """创建合并连接的 trade 回调，按 symbol 分发到对应缓存。"""
+    def _on_trade(msg: dict):
+        data = msg.get("data")
+        if data is None:
+            return
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            symbol = item.get("s") or item.get("symbol") or item.get("S", "")
+            price = _flt(item.get("p") or item.get("price") or item.get("c"))
+            if not symbol or price is None or price <= 0:
+                continue
+            sym_upper = symbol.upper()
+            reg = registry.get(sym_upper)
+            if not reg:
+                continue
+            lock, quotes, accumulator, which = reg
+            vol = _flt(item.get("v") or item.get("volume"))
+            ts_ms = int(_flt(item.get("t") or item.get("time")) or time.time() * 1000)
+            ts_sec = int(ts_ms / 1000)
+            last_sec, acc = accumulator.get(sym_upper, (0, 0.0))
+            if ts_sec != last_sec:
+                acc = 0.0
+            if vol:
+                acc += vol
+            accumulator[sym_upper] = (ts_sec, acc)
+            quote = {
+                "symbol": symbol,
+                "price": price,
+                "high": _flt(item.get("h") or item.get("high")),
+                "low": _flt(item.get("l") or item.get("low")),
+                "open": _flt(item.get("o") or item.get("open")),
+                "prev_close": _flt(item.get("pc") or item.get("preClose")),
+                "volume": acc,
+                "timestamp": ts_ms,
+                "_raw_ts": time.time(),
+            }
+            with lock:
+                quotes[sym_upper] = quote
+            log.debug(f"[Infoway/trade] {symbol}={price} vol={acc}")
+    return _on_trade
+
+
+# ---------------------------------------------------------------------------
+# Thread targets
+# ---------------------------------------------------------------------------
+
+def _merged_ws_thread_target():
+    """合并 common + crypto 的 WebSocket 连接（API key 相同时使用）。"""
+    global _connected, _crypto_connected
+    cfg_common = _cfg()
+    cfg_crypto = _cfg_crypto()
+    api_key = cfg_common.get("api_key", "")
+    business = cfg_common.get("business", "common")
+    sym_common: dict = cfg_common.get("symbols") or {}
+    sym_crypto: dict = cfg_crypto.get("symbols") or {}
+
+    # 合并 symbols（去重）— 只使用 common 业务线的 symbols，
+    # 因为 Infoway 服务器不支持跨业务线订阅，混用会导致无数据推送。
+    all_symbols = list(dict.fromkeys(list(sym_common.values())))
+    if not api_key or not all_symbols:
+        log.warning("[Infoway] Missing api_key or symbols, merged WS not started")
+        return
+
+    # 构建 symbol -> 缓存的映射
+    registry: _SymbolRegistry = {}
+    for sym in sym_common.values():
+        registry[sym.upper()] = (_lock, _quotes, _volume_accumulator, "common")
+    for sym in sym_crypto.values():
+        registry[sym.upper()] = (_crypto_lock, _crypto_quotes, _crypto_volume_accumulator, "crypto")
+
+    url = f"wss://data.infoway.io/ws?business={business}&apikey={api_key}"
+    on_trade = _make_merged_on_trade(registry)
+
+    def set_both(v: bool):
+        global _connected, _crypto_connected
+        _connected = v
+        _crypto_connected = v
+
+    _ws_loop_sync(url, all_symbols, _stop_event, on_trade, set_both)
 
 
 def _ws_thread_target():
@@ -189,15 +304,9 @@ def _ws_thread_target():
         return
 
     url = f"wss://data.infoway.io/ws?business={business}&apikey={api_key}"
-    on_trade = _make_on_trade(_lock, _quotes)
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_ws_loop(url, symbols, _stop_event, on_trade,
-                                         lambda v: _set_connected("common", v)))
-    finally:
-        loop.close()
+    on_trade = _make_on_trade(_lock, _quotes, _volume_accumulator)
+    _ws_loop_sync(url, symbols, _stop_event, on_trade,
+                  lambda v: _set_connected("common", v))
 
 
 def _crypto_ws_thread_target():
@@ -213,15 +322,9 @@ def _crypto_ws_thread_target():
         return
 
     url = f"wss://data.infoway.io/ws?business={business}&apikey={api_key}"
-    on_trade = _make_on_trade(_crypto_lock, _crypto_quotes)
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_ws_loop(url, symbols, _crypto_stop_event, on_trade,
-                                         lambda v: _set_connected("crypto", v)))
-    finally:
-        loop.close()
+    on_trade = _make_on_trade(_crypto_lock, _crypto_quotes, _crypto_volume_accumulator)
+    _ws_loop_sync(url, symbols, _crypto_stop_event, on_trade,
+                  lambda v: _set_connected("crypto", v))
 
 
 def _set_connected(which: str, value: bool):
@@ -236,15 +339,36 @@ def _set_connected(which: str, value: bool):
 # Lifecycle
 # ---------------------------------------------------------------------------
 
+def _need_merged() -> bool:
+    """检测 common 和 crypto 是否使用相同 API key，需要合并连接。"""
+    cfg_c = _cfg()
+    cfg_cr = _cfg_crypto()
+    if not cfg_c.get("enabled") or not cfg_cr.get("enabled"):
+        return False
+    return cfg_c.get("api_key") == cfg_cr.get("api_key")
+
+
 def infoway_start():
     global _thread
     cfg = _cfg()
     if not cfg.get("enabled"):
         log.info("[Infoway] Disabled in config")
         return
-    if not _HAS_WEBSOCKETS:
-        log.warning("[Infoway] websockets not installed, run: pip install websockets")
+    if not _HAS_WS_CLIENT:
+        log.warning("[Infoway] websocket-client not installed, run: pip install websocket-client")
         return
+
+    if _need_merged():
+        if _thread and _thread.is_alive():
+            log.info("[Infoway] Merged thread already running")
+            return
+        _stop_event.clear()
+        _crypto_stop_event.clear()
+        _thread = threading.Thread(target=_merged_ws_thread_target, daemon=True, name="infoway-merged-ws")
+        _thread.start()
+        log.info("[Infoway] Merged WebSocket thread started (common+crypto)")
+        return
+
     _stop_event.clear()
     _thread = threading.Thread(target=_ws_thread_target, daemon=True, name="infoway-ws")
     _thread.start()
@@ -257,9 +381,15 @@ def infoway_crypto_start():
     if not cfg.get("enabled"):
         log.info("[Infoway/crypto] Disabled in config")
         return
-    if not _HAS_WEBSOCKETS:
-        log.warning("[Infoway/crypto] websockets not installed")
+    if not _HAS_WS_CLIENT:
+        log.warning("[Infoway/crypto] websocket-client not installed")
         return
+
+    if _need_merged():
+        # 合并模式下由 infoway_start 启动唯一连接
+        log.info("[Infoway/crypto] Using merged connection")
+        return
+
     _crypto_stop_event.clear()
     _crypto_thread = threading.Thread(target=_crypto_ws_thread_target, daemon=True, name="infoway-crypto-ws")
     _crypto_thread.start()
@@ -276,6 +406,13 @@ def infoway_stop():
     if _crypto_thread and _crypto_thread.is_alive():
         _crypto_thread.join(timeout=3)
     _crypto_thread = None
+    # 清空缓存避免 stale 数据
+    with _lock:
+        _quotes.clear()
+        _volume_accumulator.clear()
+    with _crypto_lock:
+        _crypto_quotes.clear()
+        _crypto_volume_accumulator.clear()
     log.info("[Infoway] Stopped (all)")
 
 

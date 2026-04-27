@@ -61,7 +61,10 @@
       "cooldown_bars": 3,
       "bb_period": 20,
       "bb_mult": 2.0,
-      "rsi_period": 14
+      "rsi_period": 14,
+      "volume_period": 10,
+      "volume_confirm_ratio": 1.5,
+      "volume_weaken_ratio": 0.6
     },
     "comex": {
       "short_p": 10,
@@ -122,11 +125,11 @@
       "default": {
         "short_p": 5,
         "long_p": 15,
-        "spread_entry": 0.03,
+        "spread_entry": 0.012,
         "spread_strong": 0.08,
-        "slope_entry": 0.015,
+        "slope_entry": 0.012,
         "strength_multiplier": 250,
-        "cooldown_bars": 2,
+        "cooldown_bars": 5,
         "bb_period": 10,
         "bb_mult": 2.0,
         "rsi_period": 10,
@@ -137,11 +140,11 @@
       "comex": {
         "short_p": 10,
         "long_p": 20,
-        "spread_entry": 0.03,
+        "spread_entry": 0.012,
         "spread_strong": 0.08,
-        "slope_entry": 0.015,
+        "slope_entry": 0.012,
         "strength_multiplier": 250,
-        "cooldown_bars": 2,
+        "cooldown_bars": 5,
         "bb_period": 20,
         "bb_mult": 2.0,
         "rsi_period": 10,
@@ -155,16 +158,19 @@
       "huyin": {
         "short_p": 3,
         "long_p": 5,
-        "spread_entry": 0.025,
+        "spread_entry": 0.012,
         "spread_strong": 0.075,
-        "slope_entry": 0.012,
+        "slope_entry": 0.010,
         "strength_multiplier": 200,
-        "cooldown_bars": 2,
+        "cooldown_bars": 5,
         "bb_period": 5,
         "bb_mult": 2.0,
         "rsi_period": 5,
         "bb_buy_kill": 0.3,
-        "bb_sell_kill": 0.7
+        "bb_sell_kill": 0.7,
+        "volume_period": 10,
+        "volume_confirm_ratio": 1.5,
+        "volume_weaken_ratio": 0.6
       }
     }
   },
@@ -189,7 +195,7 @@
   },
   "infoway_ws": {
     "enabled": true,
-    "api_key": "3f909f6f2c5d434ebfee71a05b74de51-infoway",
+    "api_key": "51cd45a09dc7433c876f22f3281617c4-infoway",
     "business": "common",
     "symbols": {
       "xag": "XAGUSD",
@@ -198,7 +204,7 @@
   },
   "infoway_ws_crypto": {
     "enabled": true,
-    "api_key": "3f909f6f2c5d434ebfee71a05b74de51-infoway",
+    "api_key": "51cd45a09dc7433c876f22f3281617c4-infoway",
     "business": "crypto",
     "symbols": {
       "btc": "BTCUSDT"
@@ -276,12 +282,12 @@
         "ema_period": 5,
         "deviation_entry": 0.15,
         "deviation_strong": 0.4,
-        "rsi_weight": 0.4,
-        "bb_weight": 0.35,
-        "deviation_weight": 0.10,
-        "min_score": 0.35,
-        "strong_score": 0.65,
-        "cooldown_bars": 1
+        "rsi_weight": 0.3,
+        "bb_weight": 0.3,
+        "deviation_weight": 0.35,
+        "min_score": 0.65,
+        "strong_score": 0.75,
+        "cooldown_bars": 20
       },
       "comex": {
         "rsi_period": 8,
@@ -291,9 +297,9 @@
         "rsi_extreme_high": 80,
         "deviation_entry": 0.12,
         "deviation_strong": 0.25,
-        "min_score": 0.35,
-        "strong_score": 0.75,
-        "cooldown_bars": 1,
+        "min_score": 0.65,
+        "strong_score": 0.80,
+        "cooldown_bars": 20,
         "volume_period": 10,
         "volume_confirm_ratio": 1.5,
         "volume_weaken_ratio": 0.6,
@@ -304,8 +310,15 @@
         "rsi_overbought": 72,
         "deviation_entry": 0.18,
         "deviation_strong": 0.45,
-        "cooldown_bars": 1
+        "cooldown_bars": 20
       }
     }
+  },
+  "paper_trading": {
+    "stop_loss_pct": 0.15,
+    "take_profit_pct": 0.30,
+    "trailing_trigger_pct": 0.10,
+    "trailing_retracement_pct": 0.05,
+    "max_hold_seconds": 60
   }
 }

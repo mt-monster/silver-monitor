@@ -306,6 +306,43 @@ class VolumeFusionTestCase(unittest.TestCase):
         self.assertLess(info["volumeRatio"], 0.6)
         self.assertEqual(info["signal"], "buy")
 
+    def test_volume_confirm_upgrades_buy_to_strong_buy(self):
+        """buy 信号 + 放量 → 升级为 strong_buy。"""
+        base = 10000.0
+        # 较陡上涨，禁用 RSI/BB 避免干扰，确保基础信号为 buy
+        vals = [base + i * 4.0 for i in range(50)]
+        base_info = calc_momentum(vals, MomentumParams(
+            volume_period=0, bb_period=0, rsi_period=0
+        ))
+        self.assertIsNotNone(base_info)
+        self.assertEqual(base_info["signal"], "buy")
+        # 放量后应升级为 strong_buy
+        volumes = [100.0] * 49 + [300.0]
+        info = calc_momentum(vals, MomentumParams(
+            volume_period=10, volume_confirm_ratio=1.5, volume_weaken_ratio=0.6,
+            bb_period=0, rsi_period=0
+        ), volumes=volumes)
+        self.assertIsNotNone(info)
+        self.assertEqual(info["signal"], "strong_buy")
+        self.assertGreater(info["volumeRatio"], 1.5)
+
+    def test_volume_weaken_downgrades_strong_buy_to_buy(self):
+        """strong_buy 信号 + 缩量 → 降级为 buy。"""
+        base = 10000.0
+        vals = [base + i * 80.0 for i in range(50)]
+        # 先确认无 volume 时信号为 strong_buy
+        base_info = calc_momentum(vals, MomentumParams(volume_period=0))
+        self.assertIsNotNone(base_info)
+        self.assertEqual(base_info["signal"], "strong_buy")
+        # 缩量后降级为 buy
+        volumes = [100.0] * 49 + [10.0]
+        info = calc_momentum(vals, MomentumParams(
+            volume_period=10, volume_confirm_ratio=1.5, volume_weaken_ratio=0.6
+        ), volumes=volumes)
+        self.assertIsNotNone(info)
+        self.assertEqual(info["signal"], "buy")
+        self.assertLess(info["volumeRatio"], 0.6)
+
 
 class SqueezeBreakoutTestCase(unittest.TestCase):
     """测试 Squeeze Breakout 突破逻辑。"""

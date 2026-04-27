@@ -86,16 +86,19 @@ class AppState:
     # 单调递增版本号，每次数据更新 +1，SSE 用于变更检测
     data_version: int = 0
 
-    # 实时高频回测采样缓冲区: instrument_id -> [{"t": ms, "y": price}, ...]
+    # 实时高频回测采样缓冲区: instrument_id -> [{"t": ms, "y": price, "v": volume}, ...]
     # 由 FastDataPoller 每秒写入，最多保留 300 个点（约5分钟）
     realtime_backtest_buffers: dict = field(default_factory=dict)
+
+    # 各品种上一次拉到的累计成交量（用于计算秒级增量）
+    last_cumulative_volumes: dict = field(default_factory=dict)
 
     # 数据源优先级配置（可通过 Admin API 动态切换）
     source_priority: dict = field(default_factory=lambda: {
         "ag0": ["ifind", "sina"],
-        "xag": ["ifind", "infoway", "sina"],
+        "xag": ["infoway", "ifind", "sina"],
         "au0": ["sina"],
-        "xau": ["ifind", "infoway", "sina"],
+        "xau": ["infoway", "ifind", "sina"],
         "btc": ["infoway_crypto"],
     })
 

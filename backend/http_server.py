@@ -18,6 +18,7 @@ from backend.instruments import CATEGORIES, REGISTRY, registry_to_json
 from backend.pollers import sync_precious_to_instrument_caches, SOURCE_REGISTRY, SOURCE_LABELS
 from backend.research.monte_carlo import run_huyin_monte_carlo
 from backend.state import state
+from backend.paper_trading import paper_trading_tracker
 
 
 class ThreadedHttpServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
@@ -33,6 +34,9 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/stream":
             self._handle_sse()
+            return
+        if path == "/api/paper-trading/stats":
+            self._handle_paper_trading_stats()
             return
         if path.startswith("/api/"):
             self._send_json_api(path)
@@ -73,6 +77,12 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             return
         if path == "/api/admin/source-config":
             self._handle_admin_source_config_post()
+            return
+        if path == "/api/paper-trading/stats":
+            self._handle_paper_trading_stats()
+            return
+        if path == "/api/paper-trading/reset":
+            self._handle_paper_trading_reset()
             return
         self.send_response(404)
         self.send_header("Content-Type", "application/json")
@@ -464,64 +474,84 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode("utf-8"))
 
     def _handle_admin_test_sources(self):
+        """按品种测试各数据源的实际 tick 数据获取能力。"""
         results = []
-        # --- Sina ---
-        try:
-            t0 = time.time()
-            from backend.sources import fetch_usdcny_sina
-            rate = fetch_usdcny_sina()
-            elapsed = round((time.time() - t0) * 1000)
-            if rate and rate > 0:
-                results.append({"source": "Sina", "ok": True, "latency_ms": elapsed,
-                                "detail": f"USD/CNY = {rate:.4f}"})
-            else:
-                results.append({"source": "Sina", "ok": False, "latency_ms": elapsed,
-                                "detail": "返回数据为空"})
-        except Exception as exc:
-            results.append({"source": "Sina", "ok": False, "latency_ms": 0,
-                            "detail": str(exc)})
 
-        # --- iFinD ---
-        try:
-            from backend.ifind import client as ifind_client
-            t0 = time.time()
-            logged_in = ifind_client.ensure_login()
-            if not logged_in:
-                results.append({"source": "iFinD", "ok": False, "latency_ms": 0,
-                                "detail": "登录失败"})
-            else:
-                row = ifind_client.realtime_quote("XAUUSD.FX", "latest;change;changeRatio")
+        def _test_source(label, fetch_fn, instrument, has_vol=True):
+            try:
+                t0 = time.time()
+                data = fetch_fn()
                 elapsed = round((time.time() - t0) * 1000)
-                if row and row.get("latest"):
-                    price = row["latest"]
-                    results.append({"source": "iFinD", "ok": True, "latency_ms": elapsed,
-                                    "detail": f"mode={ifind_client._mode}, XAU={price}"})
+                if data and data.get("price"):
+                    price = data["price"]
+                    volume = data.get("volume")
+                    vol_str = f" vol={volume}" if has_vol and volume is not None else ""
+                    results.append({
+                        "instrument": instrument,
+                        "source": label,
+                        "ok": True,
+                        "price": price,
+                        "volume": volume,
+                        "latency_ms": elapsed,
+                        "detail": f"price={price}{vol_str}",
+                    })
                 else:
-                    results.append({"source": "iFinD", "ok": True, "latency_ms": elapsed,
-                                    "detail": f"mode={ifind_client._mode}, 已登录但XAU暂无数据(可能休市)"})
-        except Exception as exc:
-            results.append({"source": "iFinD", "ok": False, "latency_ms": 0,
-                            "detail": str(exc)})
+                    results.append({
+                        "instrument": instrument,
+                        "source": label,
+                        "ok": False,
+                        "price": None,
+                        "volume": None,
+                        "latency_ms": elapsed,
+                        "detail": "返回数据为空",
+                    })
+            except Exception as exc:
+                results.append({
+                    "instrument": instrument,
+                    "source": label,
+                    "ok": False,
+                    "price": None,
+                    "volume": None,
+                    "latency_ms": 0,
+                    "detail": str(exc),
+                })
 
-        # --- Infoway (common) ---
+        from backend.sources import fetch_huyin_sina, fetch_comex_sina
+        from backend.ifind import fetch_huyin_ifind, fetch_comex_silver_ifind
+        from backend.infoway import fetch_comex_silver_infoway
+
+        # --- 沪银 AG0 ---
+        _test_source("Sina", fetch_huyin_sina, "ag0")
+        _test_source("iFinD", fetch_huyin_ifind, "ag0")
+
+        # --- COMEX 银 XAG ---
+        _test_source("Sina", fetch_comex_sina, "xag", has_vol=False)
+        _test_source("iFinD", fetch_comex_silver_ifind, "xag")
+        _test_source("Infoway", fetch_comex_silver_infoway, "xag")
+
+        # --- 保留通用连接状态测试 ---
+        # Infoway WS 连接状态
         try:
             is_connected = infoway_available()
-            results.append({"source": "Infoway-贵金属", "ok": is_connected,
-                            "latency_ms": 0,
-                            "detail": "WebSocket 已连接" if is_connected else "WebSocket 未连接"})
+            results.append({
+                "instrument": "system",
+                "source": "Infoway-WS",
+                "ok": is_connected,
+                "price": None,
+                "volume": None,
+                "latency_ms": 0,
+                "detail": "WebSocket 已连接" if is_connected else "WebSocket 未连接",
+            })
         except Exception as exc:
-            results.append({"source": "Infoway-贵金属", "ok": False,
-                            "latency_ms": 0, "detail": str(exc)})
-
-        # --- Infoway (crypto) ---
-        try:
-            is_connected = infoway_crypto_available()
-            results.append({"source": "Infoway-加密货币", "ok": is_connected,
-                            "latency_ms": 0,
-                            "detail": "WebSocket 已连接" if is_connected else "WebSocket 未连接"})
-        except Exception as exc:
-            results.append({"source": "Infoway-加密货币", "ok": False,
-                            "latency_ms": 0, "detail": str(exc)})
+            results.append({
+                "instrument": "system",
+                "source": "Infoway-WS",
+                "ok": False,
+                "price": None,
+                "volume": None,
+                "latency_ms": 0,
+                "detail": str(exc),
+            })
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -761,6 +791,43 @@ class MonitorRequestHandler(SimpleHTTPRequestHandler):
         from backend.tick_storage import get_window_results
         results = get_window_results(inst_id, date_str)
         return {"ok": True, "instrument_id": inst_id, "date": date_str, "count": len(results), "results": results}
+
+    def _handle_paper_trading_stats(self):
+        """GET /api/paper-trading/stats?instrument_id=xag&window=86400"""
+        try:
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            inst_id = (qs.get("instrument_id") or [""])[0].strip().lower() or None
+            window = int((qs.get("window") or ["86400"])[0])
+            stats = paper_trading_tracker.get_stats(inst_id, window)
+            stats["activeTrades"] = paper_trading_tracker.get_active_trades()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, **stats}, ensure_ascii=False, default=str).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[paper-trading/stats] {exc}")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
+
+    def _handle_paper_trading_reset(self):
+        """POST /api/paper-trading/reset — 清空纸交易记录。"""
+        try:
+            paper_trading_tracker.active_trades.clear()
+            paper_trading_tracker.closed_trades.clear()
+            log.info("[PaperTrade] All trades reset")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "message": "纸交易记录已清空"}, ensure_ascii=False).encode("utf-8"))
+        except Exception as exc:
+            log.warning(f"[paper-trading/reset] {exc}")
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": str(exc)}).encode())
 
     def _handle_scan_5min(self):
         """POST /api/backtest/scan-5min — 5分钟 tick 窗口滑动扫描回测。

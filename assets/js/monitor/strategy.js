@@ -1058,6 +1058,87 @@
     }
   }
 
+  // ── 纸交易绩效 ─────────────────────────────────────────────────────
+  async function refreshPaperTrading() {
+    const grid = el("ptMetricGrid");
+    const activeEl = el("ptActiveTrades");
+    const wrap = el("ptTradesWrap");
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const symbol = el("ptSymbolSelect").value || "";
+      const windowSec = el("ptWindowSelect").value || "86400";
+      const url = `${Monitor.apiBase}/api/paper-trading/stats?instrument_id=${symbol}&window=${windowSec}`;
+      const resp = await fetch(url);
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) throw new Error(payload.error || `HTTP ${resp.status}`);
+
+      grid.style.display = "grid";
+      const cells = [
+        ["总交易", payload.totalTrades],
+        ["胜率 %", payload.winRate],
+        ["盈亏比", payload.profitFactor],
+        ["夏普比率", payload.sharpe],
+        ["平均盈亏%", payload.avgPnl],
+        ["平均持仓秒", payload.avgHoldSeconds],
+        ["最大回撤%", payload.maxDrawdown],
+        ["累计盈亏%", payload.totalPnl],
+      ];
+      grid.innerHTML = cells.map(
+        ([label, val]) => `<div class="metric-card"><div class="label">${label}</div><div class="value">${val != null ? val : "—"}</div></div>`
+      ).join("");
+
+      const active = payload.activeTrades || [];
+      if (active.length) {
+        activeEl.textContent = "活跃仓位: " + active.map(t => `${t.instrument} ${t.signal} @ ${t.entryPrice} (${t.holdSeconds}s)`).join(" | ");
+      } else {
+        activeEl.textContent = "当前无活跃仓位 — 等待信号触发后自动记录";
+      }
+
+      const trades = payload.trades || [];
+      const body = el("ptTradesBody");
+      if (trades.length) {
+        wrap.style.display = "block";
+        body.innerHTML = trades.map(tr => {
+          const pnlCls = (tr.pnlPct || 0) > 0 ? "metric-positive" : (tr.pnlPct || 0) < 0 ? "metric-negative" : "";
+          return `<tr>
+            <td>${tr.instrument}</td>
+            <td>${tr.signal}</td>
+            <td>${tr.entryPrice}</td>
+            <td>${tr.exitPrice != null ? tr.exitPrice : "—"}</td>
+            <td class="${pnlCls}">${tr.pnlPct != null ? (tr.pnlPct > 0 ? "+" : "") + tr.pnlPct + "%" : "—"}</td>
+            <td>${tr.holdSeconds != null ? tr.holdSeconds + "s" : "—"}</td>
+            <td>${tr.reason || "—"}</td>
+          </tr>`;
+        }).join("");
+      } else {
+        wrap.style.display = "none";
+      }
+    } catch (err) {
+      console.error("[paper-trading] refresh failed:", err);
+      grid.style.display = "none";
+      wrap.style.display = "none";
+      activeEl.innerHTML = `<span style="color:#f85149">⚠ 加载失败: ${err.message || String(err)}</span>` +
+        `<br><span style="color:#8b949e;font-size:12px">提示: 请确认后端服务已重启（python server.py）</span>`;
+    }
+  }
+
+  window.refreshPaperTrading = refreshPaperTrading;
+
+  async function resetPaperTrading() {
+    if (!confirm("确定清空所有纸交易记录？")) return;
+    try {
+      Monitor.apiBase = Monitor.getApiBase();
+      const resp = await fetch(`${Monitor.apiBase}/api/paper-trading/reset`, { method: "POST" });
+      const payload = await resp.json();
+      if (!resp.ok || !payload.ok) throw new Error(payload.error || "重置失败");
+      refreshPaperTrading();
+    } catch (err) {
+      console.error("[paper-trading] reset failed:", err);
+    }
+  }
+
+  window.resetPaperTrading = resetPaperTrading;
+
   async function init() {
     await populateSymbols();
     applyMomentumFormFromConfig();
@@ -1074,6 +1155,12 @@
     el("loadScanBestBtn").addEventListener("click", loadScanBest);
     el("scanSourceSelect").addEventListener("change", onScanSourceChange);
     onScanSourceChange();
+
+    // 纸交易 init
+    el("ptSymbolSelect").addEventListener("change", refreshPaperTrading);
+    el("ptWindowSelect").addEventListener("change", refreshPaperTrading);
+    refreshPaperTrading();
+    setInterval(refreshPaperTrading, 5000);
   }
 
   init();

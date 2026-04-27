@@ -1,13 +1,13 @@
 """组合信号策略：动量 + 反转 + MTF 趋势过滤 的融合决策。
 
-核心规则：
+改进后的核心规则：
 1. MTF 趋势过滤：反转策略不做逆势单
-2. 组合开关：
-   - 两策略都 neutral → neutral（空仓观望）
-   - 至少一个产生 strong 信号 → 开仓
-   - 只有一个非 neutral → 取该信号
-   - 冲突时（一个 buy 一个 sell）→ 优先反转策略（短周期更稳健）
-3. 仓位权重：基于 signal strength 和 trend confidence 动态调整
+2. 加权融合（替代简单二选一）：
+   - 动量信号强度 × 动量权重 + 反转信号强度 × 反转权重 = 组合得分
+   - 同向叠加 → 增强信号；反向冲突 → 取绝对值大的一方，但降级为非 strong
+   - MTF 强趋势时自动提升动量权重，横盘时权重相等
+3. 不再 require_strong_to_trade，允许 buy/sell 信号开仓
+4. 保留信号级 cooldown（在 pollers 层处理）
 """
 
 from __future__ import annotations
@@ -24,11 +24,16 @@ class CombinedSignalParams:
     # MTF 开关
     enable_mtf: bool = True
     # 组合开关
-    require_strong_to_trade: bool = True   # True: 仅 strong 信号才开仓
-    conflict_preference: str = "reversal"  # "reversal" | "momentum" | "neutral"
+    require_strong_to_trade: bool = False   # False: 允许 buy/sell 信号开仓
+    conflict_preference: str = "momentum"   # "momentum" | "reversal" | "neutral"
+    # 加权融合
+    enable_weighted_fusion: bool = True
+    momentum_weight: float = 0.6
+    reversal_weight: float = 0.4
+    mtf_trend_momentum_boost: float = 0.2   # 强趋势时动量权重的额外加成
     # 仓位缩放
-    min_position_pct: float = 0.0          # 最低仓位比例
-    max_position_pct: float = 1.0          # 最高仓位比例
+    min_position_pct: float = 0.0
+    max_position_pct: float = 1.0
     # 信号降级：当 MTF 趋势与动量方向矛盾时，是否降级动量信号
     downgrade_momentum_against_trend: bool = False
 
@@ -40,6 +45,14 @@ _SIGNAL_DIRECTIONS = {
     "neutral": "flat",
     "sell": "short",
     "strong_sell": "short",
+}
+
+_SIGNAL_SCORES = {
+    "strong_buy": 1.0,
+    "buy": 0.6,
+    "neutral": 0.0,
+    "sell": -0.6,
+    "strong_sell": -1.0,
 }
 
 
@@ -55,31 +68,52 @@ def _is_active(sig: str) -> bool:
     return sig in ("buy", "strong_buy", "sell", "strong_sell")
 
 
+def _signal_score(sig: str, strength: float = 50.0) -> float:
+    """将信号转换为方向强度分数 (-1.0 ~ 1.0)。"""
+    base = _SIGNAL_SCORES.get(sig, 0.0)
+    # strength 是 0~100 的百分比，映射到 0~1
+    return base * (strength / 100.0)
+
+
+def _score_to_signal(score: float) -> str:
+    """将组合得分转换为信号。"""
+    if score >= 0.8:
+        return "strong_buy"
+    elif score >= 0.35:
+        return "buy"
+    elif score <= -0.8:
+        return "strong_sell"
+    elif score <= -0.35:
+        return "sell"
+    return "neutral"
+
+
 def calc_combined_signal(
     momentum_sig: dict[str, Any] | None,
     reversal_sig: dict[str, Any] | None,
     mtf_trend: str = "sideways",
     params: CombinedSignalParams | None = None,
 ) -> dict[str, Any]:
-    """计算组合信号。
-    
+    """计算组合信号（加权融合版）。
+
     Args:
         momentum_sig: calc_momentum 返回值
         reversal_sig: calc_reversal 返回值（已或未经过 MTF 过滤）
         mtf_trend: MTF 大局方向
         params: 组合参数
-    
+
     Returns:
         {
-            "signal": str,              # 最终信号
-            "source": str,              # "momentum" | "reversal" | "combined" | "none"
-            "direction": str,           # "long" | "short" | "flat"
-            "positionPct": float,       # 建议仓位 0~100
-            "strength": float,          # 0~100
-            "momentum": dict,           # 原始动量信号
-            "reversal": dict,           # 原始/过滤后反转信号
+            "signal": str,
+            "source": str,
+            "direction": str,
+            "positionPct": float,
+            "strength": float,
+            "momentum": dict,
+            "reversal": dict,
             "mtfTrend": str,
-            "reason": str,              # 决策理由
+            "reason": str,
+            "combinedScore": float,
         }
     """
     p = params or CombinedSignalParams()
@@ -108,113 +142,75 @@ def calc_combined_signal(
             mom_sig = "neutral"
             mom_str = 0
 
-    # ── Step 3: 组合开关逻辑 ──────────────────────────────────
-    final_sig = "neutral"
-    source = "none"
-    reason = ""
+    # ── Step 3: 加权融合 ──────────────────────────────────────
+    mom_score = _signal_score(mom_sig, mom_str)
+    rev_score = _signal_score(rev_sig, rev_str)
 
-    mom_dir = _direction(mom_sig)
-    rev_dir = _direction(rev_sig)
+    # 根据 MTF 趋势动态调整权重
+    mom_w = p.momentum_weight
+    rev_w = p.reversal_weight
+    if p.enable_mtf and mtf_trend in ("up", "down"):
+        mom_w = min(0.9, mom_w + p.mtf_trend_momentum_boost)
+        rev_w = 1.0 - mom_w
+    elif p.enable_mtf and mtf_trend == "sideways":
+        mom_w = 0.5
+        rev_w = 0.5
 
-    # 情况 A：两策略都 neutral → 空仓观望
+    combined_score = mom_score * mom_w + rev_score * rev_w
+
+    # 确定最终信号
+    final_sig = _score_to_signal(combined_score)
+
+    # 确定 source 和 reason
     if not _is_active(mom_sig) and not _is_active(rev_sig):
-        final_sig = "neutral"
         source = "none"
         reason = "双策略均观望"
-
-    # 情况 B：仅动量有信号
     elif _is_active(mom_sig) and not _is_active(rev_sig):
-        if not p.require_strong_to_trade or _is_strong(mom_sig):
-            final_sig = mom_sig
-            source = "momentum"
-            reason = "动量信号独占"
-        else:
-            final_sig = "neutral"
-            source = "none"
-            reason = "动量信号非强，未达开仓门槛"
-
-    # 情况 C：仅反转有信号
+        source = "momentum"
+        reason = "动量信号独占"
     elif not _is_active(mom_sig) and _is_active(rev_sig):
-        if not p.require_strong_to_trade or _is_strong(rev_sig):
-            final_sig = rev_sig
-            source = "reversal"
-            reason = "反转信号独占"
-        else:
-            final_sig = "neutral"
-            source = "none"
-            reason = "反转信号非强，未达开仓门槛"
-
-    # 情况 D：两策略都有信号
+        source = "reversal"
+        reason = "反转信号独占"
     else:
-        # 方向一致
+        # 两策略都有信号
+        mom_dir = _direction(mom_sig)
+        rev_dir = _direction(rev_sig)
         if mom_dir == rev_dir:
-            # 都 strong → 叠加信号（取更强的那个）
+            source = "combined"
             if _is_strong(mom_sig) and _is_strong(rev_sig):
-                final_sig = mom_sig if mom_str >= rev_str else rev_sig
-                source = "combined"
                 reason = f"双策略强{mom_dir}共振"
-            # 只有一个 strong
             elif _is_strong(mom_sig):
-                final_sig = mom_sig
-                source = "combined"
                 reason = "动量强信号+反转同向确认"
             elif _is_strong(rev_sig):
-                final_sig = rev_sig
-                source = "combined"
                 reason = "反转强信号+动量同向确认"
             else:
-                # 都非 strong
-                if p.require_strong_to_trade:
-                    final_sig = "neutral"
-                    source = "none"
-                    reason = "双策略同向但均未达强信号门槛"
-                else:
-                    final_sig = rev_sig  # 优先反转
-                    source = "reversal"
-                    reason = "双策略同向非强，优先反转"
-        # 方向冲突
+                reason = "双策略同向非强"
         else:
-            if p.conflict_preference == "reversal":
-                final_sig = rev_sig if (not p.require_strong_to_trade or _is_strong(rev_sig)) else "neutral"
-                source = "reversal" if final_sig != "neutral" else "none"
-                reason = "策略冲突，优先反转" if final_sig != "neutral" else "策略冲突，反转非强，空仓"
-            elif p.conflict_preference == "momentum":
-                final_sig = mom_sig if (not p.require_strong_to_trade or _is_strong(mom_sig)) else "neutral"
-                source = "momentum" if final_sig != "neutral" else "none"
-                reason = "策略冲突，优先动量" if final_sig != "neutral" else "策略冲突，动量非强，空仓"
+            # 方向冲突
+            source = "combined"
+            if abs(mom_score) >= abs(rev_score):
+                reason = f"策略冲突，动量占优({combined_score:+.2f})"
             else:
-                final_sig = "neutral"
-                source = "none"
-                reason = "策略冲突，按规则空仓"
+                reason = f"策略冲突，反转占优({combined_score:+.2f})"
+
+    # require_strong_to_trade 过滤（如果启用）
+    if p.require_strong_to_trade and not _is_strong(final_sig):
+        final_sig = "neutral"
+        source = "none"
+        reason += "，未达强信号门槛"
 
     # ── Step 4: 仓位权重计算 ──────────────────────────────────
-    base_strength = 0.0
-    if source == "momentum":
-        base_strength = mom_str
-    elif source == "reversal":
-        base_strength = rev_str
-    elif source == "combined":
-        base_strength = max(mom_str, rev_str)
+    base_strength = abs(combined_score) * 100
+    position_pct = min(p.max_position_pct, base_strength / 100)
+    position_pct = max(p.min_position_pct, position_pct)
 
     # MTF confidence 加成/减成
-    mtf_confidence = 0.5  # default
-    if isinstance(mom, dict) and "mtfConfidence" in mom:
-        mtf_confidence = mom["mtfConfidence"]
-    elif isinstance(rev, dict) and "mtfConfidence" in rev:
-        mtf_confidence = rev["mtfConfidence"]
-
-    # 趋势一致时仓位更高
-    final_dir = _direction(final_sig)
-    if mtf_trend == "up" and final_dir == "long":
-        position_pct = min(p.max_position_pct, base_strength / 100 * 1.2)
-    elif mtf_trend == "down" and final_dir == "short":
-        position_pct = min(p.max_position_pct, base_strength / 100 * 1.2)
-    elif mtf_trend == "sideways" and final_dir != "flat":
-        position_pct = min(p.max_position_pct, base_strength / 100 * 0.8)
-    else:
-        position_pct = min(p.max_position_pct, base_strength / 100)
-
-    position_pct = max(p.min_position_pct, position_pct)
+    if mtf_trend == "up" and _direction(final_sig) == "long":
+        position_pct = min(p.max_position_pct, position_pct * 1.2)
+    elif mtf_trend == "down" and _direction(final_sig) == "short":
+        position_pct = min(p.max_position_pct, position_pct * 1.2)
+    elif mtf_trend == "sideways" and _direction(final_sig) != "flat":
+        position_pct = min(p.max_position_pct, position_pct * 0.8)
 
     return {
         "signal": final_sig,
@@ -226,6 +222,11 @@ def calc_combined_signal(
         "reversal": rev,
         "mtfTrend": mtf_trend,
         "reason": reason,
+        "combinedScore": round(combined_score, 4),
+        "momentumScore": round(mom_score, 4),
+        "reversalScore": round(rev_score, 4),
+        "momentumWeight": round(mom_w, 2),
+        "reversalWeight": round(rev_w, 2),
     }
 
 
@@ -234,8 +235,12 @@ def combined_params_from_body(body: dict) -> CombinedSignalParams:
     p = body.get("combined_params") or {}
     return CombinedSignalParams(
         enable_mtf=bool(p.get("enable_mtf", True)),
-        require_strong_to_trade=bool(p.get("require_strong_to_trade", True)),
-        conflict_preference=str(p.get("conflict_preference", "reversal")),
+        require_strong_to_trade=bool(p.get("require_strong_to_trade", False)),
+        conflict_preference=str(p.get("conflict_preference", "momentum")),
+        enable_weighted_fusion=bool(p.get("enable_weighted_fusion", True)),
+        momentum_weight=float(p.get("momentum_weight", 0.6)),
+        reversal_weight=float(p.get("reversal_weight", 0.4)),
+        mtf_trend_momentum_boost=float(p.get("mtf_trend_momentum_boost", 0.2)),
         min_position_pct=float(p.get("min_position_pct", 0.0)),
         max_position_pct=float(p.get("max_position_pct", 1.0)),
         downgrade_momentum_against_trend=bool(p.get("downgrade_momentum_against_trend", False)),

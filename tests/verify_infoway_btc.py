@@ -22,7 +22,7 @@ try:
 except ImportError:
     sys.exit("ERROR: websockets not installed.  Run: pip install websockets")
 
-API_KEY = "3f909f6f2c5d434ebfee71a05b74de51-infoway"
+API_KEY = "51cd45a09dc7433c876f22f3281617c4-infoway"
 BUSINESS = "crypto"           # crypto=加密货币, common=商品/外汇
 SYMBOL = "BTCUSDT"
 MAX_TRADES = 10               # 收到 N 条 trade 后自动退出
