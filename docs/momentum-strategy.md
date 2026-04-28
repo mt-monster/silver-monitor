@@ -70,7 +70,36 @@ ELSE:
       signal = "neutral"
 ```
 
-### 2.4 Bollinger Band 融合修正
+### 2.4 ATR 自适应阈值（ATR Adaptive Entry）
+
+当启用 ATR 自适应（`atr_period > 0`）时，`spread_entry` 和 `slope_entry` 会根据近期真实波动率动态调整：
+
+```
+ATR = 最近 atr_period 根 bar 的 |price[i] - price[i-1]| 简单平均
+ATR% = (ATR / 当前价格) × 100
+基准 ATR% = atr_baseline_pct（COMEX 银默认 0.08%）
+调整倍数 = clamp(ATR% / 基准 ATR%, min_mul, max_mul)
+adj_spread_entry = spread_entry × 调整倍数
+adj_slope_entry  = slope_entry × 调整倍数
+```
+
+**行为**：
+- 高波动期（ATR% > 基准）：门槛自动放宽，避免错失趋势
+- 低波动期（ATR% < 基准）：门槛自动收紧，过滤噪声
+- 调整范围限制在 `[base × min_mul, base × max_mul]`（默认 `[0.5×, 2.0×]`）
+
+**配置参数**：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `atr_period` | 14 | ATR 计算周期（0 = 禁用自适应） |
+| `atr_baseline_pct` | 0.08 | COMEX 银典型 ATR% 基准值 |
+| `atr_min_mul` | 0.5 | 最小调整倍数 |
+| `atr_max_mul` | 2.0 | 最大调整倍数 |
+
+前后端均实现 `_calc_atr` / `_atr_adaptive_entry`，确保实时信号与回测行为一致。
+
+### 2.5 Bollinger Band 融合修正
 
 在 EMA 基础信号之上，若启用 BB（`bb_period > 0`），计算 `%B`（价格在布林带中的位置）和带宽变化方向，对信号做二次修正：
 
@@ -101,7 +130,7 @@ squeezeBreak = prev_squeeze AND NOT squeeze AND bwExpanding
 
 当 `squeezeBreak = True` 且原始信号为 `buy` / `sell` 时，直接升级为 `strong_buy` / `strong_sell`。这是高波动品种（如 COMEX 银）的重要突破确认机制。
 
-### 2.5 成交量确认 / 降级（Volume Fusion）
+### 2.6 成交量确认 / 降级（Volume Fusion）
 
 当 `volume_period > 0` 且提供成交量序列时，计算量比 `volume_ratio = 当前成交量 / 成交量 EMA(volume_period)`：
 
@@ -116,7 +145,7 @@ squeezeBreak = prev_squeeze AND NOT squeeze AND bwExpanding
 
 > **注意**：COMEX 银目前所有数据源（Infoway、Sina、iFinD）均不提供 tick/秒级成交量，因此 COMEX 银的量比字段永久显示 `"--"`。成交量框架已预留，待接入支持 tick 成交量的数据源（如 Polygon.io、CTP）后可自动生效。
 
-### 2.6 最少样本数
+### 2.7 最少样本数
 
 ```
 minLen = long_p + 2
@@ -206,6 +235,7 @@ minLen = long_p + 2
 | **default** | 5 | 20 | 0.10 | 0.35 | 0.02 | 120 | 0 | 20 | 0 |
 | **huyin** (沪银) | 8 | 21 | 0.15 | 0.50 | 0.03 | 100 | 3 | 20 | 0 |
 | **comex** (COMEX银) | 10 | 20 | 0.05 | 0.18 | 0.010 | 300 | 2 | 20 | 10 |
+| **comex realtime** | 10 | 20 | **0.008** | **0.06** | **0.008** | 250 | **3** | 20 | 10 |
 | **hujin** (沪金) | 8 | 21 | 0.12 | 0.40 | 0.025 | 100 | 3 | 20 | 0 |
 | **comex_gold** (COMEX金) | 3 | 10 | 0.03 | 0.12 | 0.008 | 300 | 2 | 10 | 0 |
 
@@ -216,14 +246,14 @@ minLen = long_p + 2
 | 品种 | short_p | long_p | spread_entry | spread_strong | slope_entry | strength_mul | cooldown | bb_period | rsi_period | volume_period |
 |---|---|---|---|---|---|---|---|---|---|---|
 | **realtime default** | 5 | 15 | 0.03 | 0.08 | 0.015 | 250 | 2 | 10 | 10 | 0 |
-| **realtime comex** | 10 | 20 | 0.03 | 0.08 | 0.015 | 250 | 2 | 20 | 10 | 10 |
+| **realtime comex** | 10 | 20 | **0.008** | **0.06** | **0.008** | 250 | **3** | 20 | 10 | 10 |
 | **realtime huyin** | 3 | 5 | 0.025 | 0.075 | 0.012 | 200 | 2 | 5 | 5 | 0 |
 
 **参数校准原则**：
 - `bar_window_ms = 1000ms`（1 秒/bar）：信号可在 **5~20 秒**内响应
 - `EMA10/20`（COMEX）：1s × 10~20 = 10~20 秒数据窗口，过滤高频噪声，捕捉日内波段
 - `EMA3/5`（沪银）：1s × 3~5 = 3~5 秒数据窗口，捕捉短期趋势而非噪声
-- `spread_entry = 0.03%`：银价 $30 时，0.03% = $0.009，约需 5~10 秒同向波动才触发
+- `spread_entry = 0.008%`（COMEX 银 realtime）：银价 $30 时，0.008% = $0.0024，适配秒级微波动；ATR 自适应在高波动时自动放宽至 0.016%
 - `RSI(10)`：1s × 10 = 10 秒窗口，反映短期动量
 - `BB(20)`：1s × 20 = 20 秒布林带，标准差倍数 2.0
 
@@ -245,6 +275,10 @@ minLen = long_p + 2
 | `volume_period` | 成交量 EMA 周期 | 量比计算更平滑 | 更灵敏、易受单笔大单干扰 |
 | `volume_confirm_ratio` | 放量确认阈值 | 需要更大量才确认 | 较小成交量即可升级信号 |
 | `volume_weaken_ratio` | 缩量降级阈值 | 更容易触发降级 | 需要更小量才降级 |
+| `atr_period` | ATR 自适应周期 | 波动率参考窗口更长 | 波动率参考窗口更短 |
+| `atr_baseline_pct` | ATR 基准波动率 | 高基准→低波动期门槛更宽松 | 低基准→高波动期门槛更紧 |
+| `atr_min_mul` | 最小调整倍数 | 门槛不会降得太低 | 允许更大程度降低门槛 |
+| `atr_max_mul` | 最大调整倍数 | 门槛不会升得太高 | 允许更大程度提高门槛 |
 
 ---
 
@@ -378,7 +412,8 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 
 | 方向 | 现状 | 建议 |
 |---|---|---|
-| **自适应参数** | 当前 EMA 周期和阈值为静态配置，需人工调优 | 引入 ATR 自适应：`spread_entry = f(ATR%)`，高波动品种自动放宽阈值，低波动品种收紧 |
+| **自适应参数** | ~~当前 EMA 周期和阈值为静态配置，需人工调优~~ ✅ 已落地 | 引入 ATR 自适应：`spread_entry = f(ATR%)`，高波动品种自动放宽阈值，低波动品种收紧 |
+| **品种级风控** | 所有品种共用一套 paper_trading 止损/止盈 | COMEX 银独立配置：`stop_loss=0.12%` / `max_hold=90s`，与 BTC 等高波动品种区分 |
 | **多时间框架确认** | 仅使用单一频率数据 | 增加 MTF（Multi-Timeframe）：如用日线趋势方向过滤 60min 信号，减少逆势交易 |
 | **成交量确认** | ~~当前完全不使用成交量~~ ✅ 已落地 | 框架已就绪：`volume_period`/`volume_confirm_ratio`/`volume_weaken_ratio` 前后端一致；国内品种 Sina 数据含 volume 字段，COMEX 银待数据源支持 |
 | **Squeeze 前端补齐** | ~~后端 backtest 计算 Squeeze，前端未实现~~ ✅ 已落地 | 前后端均实现 Squeeze + Squeeze Breakout：`prev_squeeze && !squeeze && bwExpanding` 升级 buy/sell → strong_buy/strong_sell |
@@ -397,7 +432,7 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 
 | 方向 | 现状 | 建议 |
 |---|---|---|
-| **成本模型** | 不计手续费和滑点 | 添加可配置的手续费率（如万分之 0.5）和滑点（1 tick），回测结果更接近实盘 |
+| **成本模型** | ~~不计手续费和滑点~~ ✅ 已落地 | `BacktestConfig` 默认 `commission_rate=0.05%` / `slippage_pct=0.02%`，回测结果更接近实盘 |
 | **多策略支持** | 仅 momentum long-only | 扩展为策略插件架构：均线交叉、通道突破、统计套利等可注册为不同 strategy |
 | **双向交易** | 仅 Long-only | 增加 Long-Short 模式，sell 信号开空，buy 信号平空开多 |
 | **Walk-forward** | 无 | 分段回测：用前 N 根 bar 优化参数，后 M 根 bar 验证，避免过拟合 |
@@ -444,11 +479,12 @@ minLen = max(rsi_period + 1, bb_period, ema_period) + 2
 修改动量策略时，确保同步以下位置：
 
 - [ ] `monitor.config.json` → `momentum` 段
-- [ ] `backend/strategies/momentum.py` → `MomentumParams` 默认值
-- [ ] `assets/js/monitor/core.js` → `defaultConfig.momentum` 硬编码兜底
-- [ ] `assets/js/monitor/momentum.js` → 如改公式需同步
+- [ ] `backend/strategies/momentum.py` → `MomentumParams` 默认值 + `_calc_atr` / `_atr_adaptive_entry`
+- [ ] `assets/js/monitor/core.js` → `defaultConfig.momentum` 硬编码兜底（含 atr 参数）
+- [ ] `assets/js/monitor/momentum.js` → `_calcATR` / `_atrAdaptiveEntry` 前后端对齐
 - [ ] `assets/js/monitor/detail.js` → `_updateMomentum()` 中的 hardcoded defaults
-- [ ] `backend/backtest.py` → `momentum_params_from_body()` 参数解析
-- [ ] `tests/test_momentum_strategy.py` → 单测断言（含 volume、squeezeBreak）
+- [ ] `backend/backtest.py` → `BacktestConfig` 默认成本 + `momentum_params_from_body()` ATR 参数解析
+- [ ] `backend/paper_trading.py` → 品种级配置 `_get_config(instrument_id)`
+- [ ] `tests/test_momentum_strategy.py` → 单测断言（含 volume、squeezeBreak、ATR 自适应）
 - [ ] `tests/test_reversal_strategy.py` → 单测断言（含 volume）
 - [ ] 本文档

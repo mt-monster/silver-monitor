@@ -45,20 +45,47 @@ class PaperTradingConfig:
     max_closed_trades: int = 500      # 最大保留平仓记录数
 
 
+# instrument_id → paper_trading 配置 key 映射
+_INSTRUMENT_TO_PT_KEY = {
+    "ag0": "huyin",
+    "xag": "comex",
+    "au0": "hujin",
+    "xau": "comex_gold",
+    "btc": "btc",
+}
+
+
 class PaperTradingTracker:
     """纸交易追踪器。
 
     每个品种维护一个活跃仓位（active_trade）和已平仓列表（closed_trades）。
     当组合信号变化时，如果方向改变，平掉旧仓位并开新仓位。
     每次价格更新时检查活跃仓位是否触发止损/止盈/移动止盈/时间止损。
+    支持按品种读取独立配置（从 monitor.config.json paper_trading 段）。
     """
 
-    def __init__(self, config: Optional[PaperTradingConfig] = None):
-        self.config = config or PaperTradingConfig()
+    def __init__(self, config: Optional[PaperTradingConfig] = None,
+                 per_instrument_configs: Optional[dict[str, PaperTradingConfig]] = None):
+        self._default_config = config or PaperTradingConfig()
+        self._per_inst = per_instrument_configs or {}
         self.active_trades: dict[str, PaperTrade] = {}  # instrument_id -> PaperTrade
         self.closed_trades: list[PaperTrade] = []
         self._lock = threading.Lock()
         self._trade_counter = 0
+
+    def _get_config(self, instrument_id: str) -> PaperTradingConfig:
+        """获取指定品种的配置，未配置则使用默认。支持 instrument_id 和 symbol key 两种查找。"""
+        # 先按 instrument_id 直接查找
+        cfg = self._per_inst.get(instrument_id)
+        if cfg is not None:
+            return cfg
+        # 再按映射后的 key 查找
+        mapped = _INSTRUMENT_TO_PT_KEY.get(instrument_id)
+        if mapped:
+            cfg = self._per_inst.get(mapped)
+            if cfg is not None:
+                return cfg
+        return self._default_config
 
     def _next_id(self) -> str:
         self._trade_counter += 1
@@ -118,7 +145,7 @@ class PaperTradingTracker:
                 return
 
             now_ms = int(time.time() * 1000)
-            cfg = self.config
+            cfg = self._get_config(instrument_id)
 
             # 计算当前盈亏百分比
             if trade.direction == "long":
@@ -177,8 +204,8 @@ class PaperTradingTracker:
 
         self.closed_trades.append(trade)
         # 限制记录数量，避免内存膨胀
-        if len(self.closed_trades) > self.config.max_closed_trades:
-            self.closed_trades = self.closed_trades[-self.config.max_closed_trades // 2 * 3:]
+        if len(self.closed_trades) > self._default_config.max_closed_trades:
+            self.closed_trades = self.closed_trades[-self._default_config.max_closed_trades // 2 * 3:]
 
         log.info(
             f"[PaperTrade] CLOSE {trade.instrument_id} {trade.signal} "
@@ -317,12 +344,25 @@ def _signal_rank(signal: str) -> int:
 from backend.config import RUNTIME_CONFIG  # type: ignore[import]  # noqa: E402
 
 _pt_cfg = RUNTIME_CONFIG.get("paper_trading", {})
-paper_trading_tracker = PaperTradingTracker(
-    PaperTradingConfig(
-        stop_loss_pct=float(_pt_cfg.get("stop_loss_pct", 0.15)),
-        take_profit_pct=float(_pt_cfg.get("take_profit_pct", 0.30)),
-        trailing_trigger_pct=float(_pt_cfg.get("trailing_trigger_pct", 0.10)),
-        trailing_retracement_pct=float(_pt_cfg.get("trailing_retracement_pct", 0.05)),
-        max_hold_seconds=int(_pt_cfg.get("max_hold_seconds", 60)),
+
+
+def _build_config(cfg_dict: dict) -> PaperTradingConfig:
+    return PaperTradingConfig(
+        stop_loss_pct=float(cfg_dict.get("stop_loss_pct", 0.15)),
+        take_profit_pct=float(cfg_dict.get("take_profit_pct", 0.30)),
+        trailing_trigger_pct=float(cfg_dict.get("trailing_trigger_pct", 0.10)),
+        trailing_retracement_pct=float(cfg_dict.get("trailing_retracement_pct", 0.05)),
+        max_hold_seconds=int(cfg_dict.get("max_hold_seconds", 60)),
     )
+
+
+_default_pt_cfg = _build_config(_pt_cfg.get("default", _pt_cfg))
+_per_inst_pt_cfg: dict[str, PaperTradingConfig] = {}
+for _key, _val in _pt_cfg.items():
+    if _key != "default" and isinstance(_val, dict):
+        _per_inst_pt_cfg[_key] = _build_config(_val)
+
+paper_trading_tracker = PaperTradingTracker(
+    config=_default_pt_cfg,
+    per_instrument_configs=_per_inst_pt_cfg,
 )

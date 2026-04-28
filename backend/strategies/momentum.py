@@ -29,6 +29,11 @@ class MomentumParams:
     # RSI 融合压制阈值（参数化，便于按品种/频率调整）
     rsi_buy_kill: float = 70.0   # RSI 高于此值时压制 buy → neutral
     rsi_sell_kill: float = 30.0  # RSI 低于此值时压制 sell → neutral
+    # ATR 自适应阈值（0 = 禁用）
+    atr_period: int = 14         # ATR 计算周期
+    atr_baseline_pct: float = 0.08  # COMEX 银典型 ATR% 基准值
+    atr_min_mul: float = 0.5     # 门槛最小调整倍数
+    atr_max_mul: float = 2.0     # 门槛最大调整倍数
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -243,6 +248,39 @@ def _apply_signal_cooldown(signal: str, last_active: str, cooldown: int, cooldow
     return signal, new_cooldown, updated_last
 
 
+def _calc_atr(prices: list[float], period: int = 14) -> float:
+    """计算简化 ATR（TR 的简单平均）。"""
+    if len(prices) < period + 1:
+        return 0.0
+    trs = []
+    for i in range(1, len(prices)):
+        trs.append(abs(prices[i] - prices[i - 1]))
+    if len(trs) < period:
+        return sum(trs) / len(trs) if trs else 0.0
+    return sum(trs[-period:]) / period
+
+
+def _atr_adaptive_entry(
+    base_entry: float,
+    vals: list[float],
+    atr_period: int = 14,
+    baseline_pct: float = 0.08,
+    min_mul: float = 0.5,
+    max_mul: float = 2.0,
+) -> tuple[float, float]:
+    """基于 ATR 动态调整 entry 门槛，返回 (调整后的门槛, 实际倍数)。"""
+    if len(vals) < atr_period + 1:
+        return base_entry, 1.0
+    atr = _calc_atr(vals, atr_period)
+    price = vals[-1]
+    atr_pct = (atr / price) * 100 if price > 0 else 0.0
+    if baseline_pct <= 0:
+        return base_entry, 1.0
+    ratio = atr_pct / baseline_pct
+    mul = max(min_mul, min(max_mul, ratio))
+    return base_entry * mul, mul
+
+
 def calc_momentum(vals: list[float],
                   params: MomentumParams | None = None,
                   volumes: list[float] | None = None) -> dict[str, Any] | None:
@@ -257,6 +295,17 @@ def calc_momentum(vals: list[float],
     if not vals or len(vals) < min_len:
         return None
 
+    # ── ATR 自适应 entry 门槛 ──────────────────────────────────
+    adj_spread_entry = p.spread_entry
+    adj_slope_entry = p.slope_entry
+    atr_mul = 1.0
+    if p.atr_period > 0:
+        adj_spread_entry, atr_mul = _atr_adaptive_entry(
+            p.spread_entry, vals, p.atr_period,
+            p.atr_baseline_pct, p.atr_min_mul, p.atr_max_mul,
+        )
+        adj_slope_entry = p.slope_entry * atr_mul
+
     ema_s = ema_series(vals, p.short_p)
     ema_l = ema_series(vals, p.long_p)
     last_s = ema_s[-1]
@@ -267,11 +316,11 @@ def calc_momentum(vals: list[float],
     spread_pct = ((last_s - last_l) / last_l) * 100 if last_l != 0 else 0.0
     slope_pct = ((last_s - prev_s) / prev_s) * 100 if prev_s != 0 else 0.0
 
-    # EMA 基础信号
+    # EMA 基础信号（使用 ATR 自适应后的门槛）
     signal = "neutral"
-    if last_s > last_l and spread_pct > p.spread_entry and slope_pct > p.slope_entry:
+    if last_s > last_l and spread_pct > adj_spread_entry and slope_pct > adj_slope_entry:
         signal = "strong_buy" if spread_pct > p.spread_strong else "buy"
-    elif last_s < last_l and spread_pct < -p.spread_entry and slope_pct < -p.slope_entry:
+    elif last_s < last_l and spread_pct < -adj_spread_entry and slope_pct < -adj_slope_entry:
         signal = "strong_sell" if spread_pct < -p.spread_strong else "sell"
 
     # Bollinger 带融合
@@ -376,6 +425,10 @@ def calc_momentum(vals: list[float],
         "longEMA": last_l,
         "strength": strength,
     }
+    if p.atr_period > 0:
+        result["atrMul"] = round(atr_mul, 4)
+        result["adjSpreadEntry"] = round(adj_spread_entry, 6)
+        result["adjSlopeEntry"] = round(adj_slope_entry, 6)
     if bb_info:
         result["bb"] = bb_info
     if rsi_val is not None:

@@ -108,6 +108,10 @@
         bbSellKill: Number(defaults.bb_sell_kill != null ? defaults.bb_sell_kill : 0.7),
         rsiBuyKill: Number(defaults.rsi_buy_kill != null ? defaults.rsi_buy_kill : 70),
         rsiSellKill: Number(defaults.rsi_sell_kill != null ? defaults.rsi_sell_kill : 30),
+        atrPeriod: Number(defaults.atr_period != null ? defaults.atr_period : 14),
+        atrBaselinePct: Number(defaults.atr_baseline_pct != null ? defaults.atr_baseline_pct : 0.08),
+        atrMinMul: Number(defaults.atr_min_mul != null ? defaults.atr_min_mul : 0.5),
+        atrMaxMul: Number(defaults.atr_max_mul != null ? defaults.atr_max_mul : 2.0),
       },
     };
 
@@ -131,6 +135,10 @@
         rsiSellKill: Number(c.rsi_sell_kill ?? defaults.rsi_sell_kill ?? 30),
         shortP: Number(c.short_p ?? defaults.short_p),
         longP: Number(c.long_p ?? defaults.long_p),
+        atrPeriod: Number(c.atr_period ?? defaults.atr_period ?? 14),
+        atrBaselinePct: Number(c.atr_baseline_pct ?? defaults.atr_baseline_pct ?? 0.08),
+        atrMinMul: Number(c.atr_min_mul ?? defaults.atr_min_mul ?? 0.5),
+        atrMaxMul: Number(c.atr_max_mul ?? defaults.atr_max_mul ?? 2.0),
       };
     });
 
@@ -154,6 +162,10 @@
         volumePeriod: Number(s.volume_period ?? defaults.volume_period ?? 0),
         volumeConfirmRatio: Number(s.volume_confirm_ratio ?? defaults.volume_confirm_ratio ?? 1.5),
         volumeWeakenRatio: Number(s.volume_weaken_ratio ?? defaults.volume_weaken_ratio ?? 0.6),
+        atrPeriod: Number(s.atr_period ?? defaults.atr_period ?? 14),
+        atrBaselinePct: Number(s.atr_baseline_pct ?? defaults.atr_baseline_pct ?? 0.08),
+        atrMinMul: Number(s.atr_min_mul ?? defaults.atr_min_mul ?? 0.5),
+        atrMaxMul: Number(s.atr_max_mul ?? defaults.atr_max_mul ?? 2.0),
       };
     });
 
@@ -196,6 +208,10 @@
             volumePeriod: Number(rt.volume_period ?? rtDefaults.volume_period ?? Monitor.momentumThresholds[symbol].volumePeriod),
             volumeConfirmRatio: Number(rt.volume_confirm_ratio ?? rtDefaults.volume_confirm_ratio ?? Monitor.momentumThresholds[symbol].volumeConfirmRatio),
             volumeWeakenRatio: Number(rt.volume_weaken_ratio ?? rtDefaults.volume_weaken_ratio ?? Monitor.momentumThresholds[symbol].volumeWeakenRatio),
+            atrPeriod: Number(rt.atr_period ?? rtDefaults.atr_period ?? Monitor.momentumThresholds[symbol].atrPeriod),
+            atrBaselinePct: Number(rt.atr_baseline_pct ?? rtDefaults.atr_baseline_pct ?? Monitor.momentumThresholds[symbol].atrBaselinePct),
+            atrMinMul: Number(rt.atr_min_mul ?? rtDefaults.atr_min_mul ?? Monitor.momentumThresholds[symbol].atrMinMul),
+            atrMaxMul: Number(rt.atr_max_mul ?? rtDefaults.atr_max_mul ?? Monitor.momentumThresholds[symbol].atrMaxMul),
           };
         }
         if (Monitor.momentumPeriods[symbol]) {

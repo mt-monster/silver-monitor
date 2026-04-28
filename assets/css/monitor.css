@@ -186,7 +186,7 @@ html,body{background:var(--bg0);color:var(--text);font-family:var(--mono);font-s
 .signal-bar-inner.bull{background:linear-gradient(90deg,var(--yellow),var(--red))}
 .signal-bar-inner.bear{background:linear-gradient(90deg,var(--green),var(--yellow))}
 .signal-bar-inner.flat{background:var(--text3)}
-.signal-note{font-size:9px;color:var(--text3);margin-top:6px}
+.signal-note{font-size:9px;color:#fff;margin-top:6px;text-shadow:0 0 4px rgba(255,255,255,.15);font-weight:500}
 
 /* Reversal Signal Card */
 .reversal-card{border-left:3px solid var(--purple,#a371f7)}

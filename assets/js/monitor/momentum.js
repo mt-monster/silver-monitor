@@ -176,6 +176,33 @@
     return reasons.slice(0, 3);
   }
 
+  /** 计算简化 ATR（TR 的简单平均），与后端 _calc_atr 对齐 */
+  function _calcATR(prices, period) {
+    if (!prices || prices.length < period + 1) return 0;
+    let sum = 0;
+    const start = Math.max(1, prices.length - period);
+    for (let i = start; i < prices.length; i++) {
+      sum += Math.abs(prices[i] - prices[i - 1]);
+    }
+    return sum / (prices.length - start);
+  }
+
+  /** ATR 自适应 entry 门槛，与后端 _atr_adaptive_entry 对齐 */
+  function _atrAdaptiveEntry(baseEntry, vals, thresholds) {
+    const atrP = thresholds.atrPeriod || 0;
+    if (atrP <= 0 || vals.length < atrP + 1) return { value: baseEntry, mul: 1.0 };
+    const atr = _calcATR(vals, atrP);
+    const price = vals[vals.length - 1];
+    const atrPct = price > 0 ? (atr / price) * 100 : 0;
+    const baseline = thresholds.atrBaselinePct != null ? thresholds.atrBaselinePct : 0.08;
+    const minMul = thresholds.atrMinMul != null ? thresholds.atrMinMul : 0.5;
+    const maxMul = thresholds.atrMaxMul != null ? thresholds.atrMaxMul : 2.0;
+    if (baseline <= 0) return { value: baseEntry, mul: 1.0 };
+    const ratio = atrPct / baseline;
+    const mul = Math.max(minMul, Math.min(maxMul, ratio));
+    return { value: baseEntry * mul, mul };
+  }
+
   /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 + 成交量确认 */
 
   Monitor.calcMomentum = function (series, shortP, longP, thresholds, volumes) {
@@ -204,11 +231,13 @@
 
     const th = thresholds || Monitor.getMomentumThresholds();
 
-    const se = th.spreadEntry;
+    // ── ATR 自适应 entry 门槛 ──────────────────────────────────
+    const adjSpread = _atrAdaptiveEntry(th.spreadEntry, vals, th);
+    const adjSlope = _atrAdaptiveEntry(th.slopeEntry, vals, th);
+    const se = adjSpread.value;
+    const sl = adjSlope.value;
 
     const ss = th.spreadStrong;
-
-    const sl = th.slopeEntry != null ? th.slopeEntry : 0.02;
 
     const sm = th.strengthMul != null ? th.strengthMul : 120;
 
@@ -314,27 +343,23 @@
       }
     }
 
-    return {
-
+    const result = {
       signal,
-
       spreadPct,
-
       slopePct,
-
       shortEMA: lastS,
-
       longEMA: lastL,
-
       strength: Math.min(100, Math.abs(spreadPct) * sm),
-
       bb,
-
       rsi,
-
       volumeRatio,
-
     };
+    if (th.atrPeriod > 0) {
+      result.atrMul = Math.round(adjSpread.mul * 10000) / 10000;
+      result.adjSpreadEntry = Math.round(adjSpread.value * 1000000) / 1000000;
+      result.adjSlopeEntry = Math.round(adjSlope.value * 1000000) / 1000000;
+    }
+    return result;
 
   };
 

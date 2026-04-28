@@ -25,8 +25,8 @@ from backend.strategies.reversal import ReversalParams, calc_reversal
 @dataclass
 class BacktestConfig:
     mode: str = "long_only"
-    commission_rate: float = 0.0
-    slippage_pct: float = 0.0
+    commission_rate: float = 0.0005    # 0.05% 单边手续费
+    slippage_pct: float = 0.0002       # 0.02% 滑点
     # 风控参数（与 paper_trading 对齐，0 = 禁用）
     stop_loss_pct: float = 0.0           # 止损百分比，例 0.15 表示 0.15%
     take_profit_pct: float = 0.0         # 止盈百分比
