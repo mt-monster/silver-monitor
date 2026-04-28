@@ -153,7 +153,9 @@
         "min_volatility_pct": 0.03,
         "volume_period": 10,
         "volume_confirm_ratio": 1.5,
-        "volume_weaken_ratio": 0.6
+        "volume_weaken_ratio": 0.6,
+        "rsi_buy_kill": 75.0,
+        "rsi_sell_kill": 25.0
       },
       "huyin": {
         "short_p": 3,

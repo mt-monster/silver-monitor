@@ -106,6 +106,8 @@
         cooldownBars: Number(defaults.cooldown_bars != null ? defaults.cooldown_bars : 0),
         bbBuyKill: Number(defaults.bb_buy_kill != null ? defaults.bb_buy_kill : 0.3),
         bbSellKill: Number(defaults.bb_sell_kill != null ? defaults.bb_sell_kill : 0.7),
+        rsiBuyKill: Number(defaults.rsi_buy_kill != null ? defaults.rsi_buy_kill : 70),
+        rsiSellKill: Number(defaults.rsi_sell_kill != null ? defaults.rsi_sell_kill : 30),
       },
     };
 
@@ -125,6 +127,8 @@
         cooldownBars: Number(c.cooldown_bars ?? defaults.cooldown_bars ?? 0),
         bbBuyKill: Number(c.bb_buy_kill ?? defaults.bb_buy_kill ?? 0.3),
         bbSellKill: Number(c.bb_sell_kill ?? defaults.bb_sell_kill ?? 0.7),
+        rsiBuyKill: Number(c.rsi_buy_kill ?? defaults.rsi_buy_kill ?? 70),
+        rsiSellKill: Number(c.rsi_sell_kill ?? defaults.rsi_sell_kill ?? 30),
         shortP: Number(c.short_p ?? defaults.short_p),
         longP: Number(c.long_p ?? defaults.long_p),
       };
@@ -145,6 +149,8 @@
         cooldownBars: Number(s.cooldown_bars ?? defaults.cooldown_bars ?? 0),
         bbBuyKill: Number(s.bb_buy_kill ?? defaults.bb_buy_kill ?? 0.3),
         bbSellKill: Number(s.bb_sell_kill ?? defaults.bb_sell_kill ?? 0.7),
+        rsiBuyKill: Number(s.rsi_buy_kill ?? defaults.rsi_buy_kill ?? 70),
+        rsiSellKill: Number(s.rsi_sell_kill ?? defaults.rsi_sell_kill ?? 30),
         volumePeriod: Number(s.volume_period ?? defaults.volume_period ?? 0),
         volumeConfirmRatio: Number(s.volume_confirm_ratio ?? defaults.volume_confirm_ratio ?? 1.5),
         volumeWeakenRatio: Number(s.volume_weaken_ratio ?? defaults.volume_weaken_ratio ?? 0.6),
@@ -185,6 +191,8 @@
             cooldownBars: Number(rt.cooldown_bars ?? rtDefaults.cooldown_bars ?? Monitor.momentumThresholds[symbol].cooldownBars),
             bbBuyKill: Number(rt.bb_buy_kill ?? rtDefaults.bb_buy_kill ?? Monitor.momentumThresholds[symbol].bbBuyKill),
             bbSellKill: Number(rt.bb_sell_kill ?? rtDefaults.bb_sell_kill ?? Monitor.momentumThresholds[symbol].bbSellKill),
+            rsiBuyKill: Number(rt.rsi_buy_kill ?? rtDefaults.rsi_buy_kill ?? Monitor.momentumThresholds[symbol].rsiBuyKill),
+            rsiSellKill: Number(rt.rsi_sell_kill ?? rtDefaults.rsi_sell_kill ?? Monitor.momentumThresholds[symbol].rsiSellKill),
             volumePeriod: Number(rt.volume_period ?? rtDefaults.volume_period ?? Monitor.momentumThresholds[symbol].volumePeriod),
             volumeConfirmRatio: Number(rt.volume_confirm_ratio ?? rtDefaults.volume_confirm_ratio ?? Monitor.momentumThresholds[symbol].volumeConfirmRatio),
             volumeWeakenRatio: Number(rt.volume_weaken_ratio ?? rtDefaults.volume_weaken_ratio ?? Monitor.momentumThresholds[symbol].volumeWeakenRatio),

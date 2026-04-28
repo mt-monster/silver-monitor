@@ -95,6 +95,11 @@ def _run_momentum_for_window(
         bb_buy_kill=float(params_dict.get("bb_buy_kill", 0.3)),
         bb_sell_kill=float(params_dict.get("bb_sell_kill", 0.7)),
         min_volatility_pct=float(params_dict.get("min_volatility_pct", 0.03)),
+        volume_period=int(params_dict.get("volume_period", 0)),
+        volume_confirm_ratio=float(params_dict.get("volume_confirm_ratio", 1.5)),
+        volume_weaken_ratio=float(params_dict.get("volume_weaken_ratio", 0.6)),
+        rsi_buy_kill=float(params_dict.get("rsi_buy_kill", 70.0)),
+        rsi_sell_kill=float(params_dict.get("rsi_sell_kill", 30.0)),
     )
     return run_momentum_backtest(bars, p, bt_cfg)
 

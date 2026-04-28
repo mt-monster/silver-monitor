@@ -7,6 +7,7 @@ from backend.strategies.momentum import (
     MomentumParams,
     _apply_signal_cooldown,
     _fuse_with_bb,
+    _fuse_with_rsi,
     _fuse_with_volume,
     bollinger_at,
     calc_momentum,
@@ -161,6 +162,16 @@ class FuseWithBBTestCase(unittest.TestCase):
     def test_neutral_unchanged(self):
         """neutral 不受 BB 影响。"""
         self.assertEqual(_fuse_with_bb("neutral", 0.5, True), "neutral")
+
+
+class FuseWithRSITestCase(unittest.TestCase):
+    def test_custom_buy_kill_threshold_controls_buy_suppression(self):
+        self.assertEqual(_fuse_with_rsi("buy", 72.0), "neutral")
+        self.assertEqual(_fuse_with_rsi("buy", 72.0, buy_kill=75.0), "buy")
+
+    def test_custom_sell_kill_threshold_controls_sell_suppression(self):
+        self.assertEqual(_fuse_with_rsi("sell", 28.0), "neutral")
+        self.assertEqual(_fuse_with_rsi("sell", 28.0, sell_kill=25.0), "sell")
 
 
 class CalcMomentumWithBBTestCase(unittest.TestCase):

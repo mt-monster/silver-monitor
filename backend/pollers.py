@@ -126,6 +126,8 @@ def _momentum_params_for(inst_id: str):
         volume_period=int(m.get("volume_period", 0)),
         volume_confirm_ratio=float(m.get("volume_confirm_ratio", 1.5)),
         volume_weaken_ratio=float(m.get("volume_weaken_ratio", 0.6)),
+        rsi_buy_kill=float(m.get("rsi_buy_kill", 70.0)),
+        rsi_sell_kill=float(m.get("rsi_sell_kill", 30.0)),
     )
 
 
@@ -879,6 +881,7 @@ def _buffer_precious_prices():
             pt = {"t": ts_ms, "y": px}
             vol = d.get("volume")
             source = d.get("source", "")
+            raw_vol = None
             if vol is not None:
                 # 按数据源配套处理 volume：
                 # - Sina 沪银：累计成交量 → 秒级增量
@@ -887,14 +890,26 @@ def _buffer_precious_prices():
                 if inst_id == "ag0" and "Sina" in source:
                     last_vol = state.last_cumulative_volumes.get(inst_id)
                     if last_vol is not None and vol >= last_vol:
-                        delta = vol - last_vol
+                        raw_vol = vol - last_vol
                     else:
-                        delta = vol
-                    pt["v"] = delta
+                        raw_vol = vol
                     state.last_cumulative_volumes[inst_id] = vol
                 elif inst_id == "xag" and "Infoway" in source:
-                    pt["v"] = vol
+                    raw_vol = vol
                 # iFinD 或其他无有效 volume 的数据源：忽略
+
+            # 价格变动率加权成交量（方案B）
+            # 有效成交量 = 原始成交量 × (1 + |价格变动率| × 100)
+            # 横盘时乘数≈1.0，价格变动1%时乘数=2.0，只给推动价格的成交量赋权
+            if raw_vol is not None and raw_vol > 0:
+                prev_px = rt_buf[-1]["y"] if rt_buf else None
+                if prev_px and prev_px > 0:
+                    price_change_rate = abs(px - prev_px) / prev_px
+                    effective_vol = raw_vol * (1.0 + price_change_rate * 100.0)
+                    pt["v"] = effective_vol
+                else:
+                    pt["v"] = raw_vol
+
             rt_buf.append(pt)
             if len(rt_buf) > 300:
                 rt_buf = rt_buf[-300:]

@@ -45,6 +45,8 @@ class MomentumParamsForTestCase(unittest.TestCase):
         # COMEX realtime 配置了特定的 min_volatility_pct / volume_period
         self.assertGreater(p.min_volatility_pct, 0.0)
         self.assertGreater(p.volume_period, 0)
+        self.assertEqual(p.rsi_buy_kill, 75.0)
+        self.assertEqual(p.rsi_sell_kill, 25.0)
 
 
 class ReversalParamsForTestCase(unittest.TestCase):

@@ -27,6 +27,12 @@ class BacktestConfig:
     mode: str = "long_only"
     commission_rate: float = 0.0
     slippage_pct: float = 0.0
+    # 风控参数（与 paper_trading 对齐，0 = 禁用）
+    stop_loss_pct: float = 0.0           # 止损百分比，例 0.15 表示 0.15%
+    take_profit_pct: float = 0.0         # 止盈百分比
+    trailing_trigger_pct: float = 0.0    # 移动止盈触发阈值（盈利达到此值后启动跟踪）
+    trailing_retracement_pct: float = 0.0  # 移动止盈回撤阈值
+    max_hold_bars: int = 0               # 最大持仓 bar 数（0 = 不限制）
 
 
 _HISTORY_FETCHERS: dict[str, tuple[str, Callable[[], list | None], Any]] = {
@@ -132,23 +138,62 @@ def load_realtime_bars(symbol: str, lookback_minutes: int = 5) -> tuple[list[dic
     return normalize_bars(bars), "1s", None
 
 
+def _check_risk_exit(
+    cfg: BacktestConfig,
+    direction: int,             # +1 long, -1 short
+    entry_price: float,
+    current_price: float,
+    bars_held: int,
+    mfe_pct: float,             # 最大有利变动百分比（已记录的最高盈利）
+) -> tuple[bool, str]:
+    """检查持仓是否触发止损/止盈/移动止盈/时间止损。
+
+    与 paper_trading.PaperTradingTracker.on_price_tick 的逻辑对齐。
+
+    Returns:
+        (should_exit, reason)
+    """
+    if entry_price <= 0:
+        return False, ""
+
+    # 当前盈亏百分比
+    if direction > 0:
+        pnl_pct = (current_price - entry_price) / entry_price * 100
+    else:
+        pnl_pct = (entry_price - current_price) / entry_price * 100
+
+    # 1) 止损
+    if cfg.stop_loss_pct > 0 and pnl_pct <= -cfg.stop_loss_pct:
+        return True, f"stop_loss({pnl_pct:.3f}%)"
+
+    # 2) 止盈
+    if cfg.take_profit_pct > 0 and pnl_pct >= cfg.take_profit_pct:
+        return True, f"take_profit({pnl_pct:.3f}%)"
+
+    # 3) 移动止盈
+    if (cfg.trailing_trigger_pct > 0 and cfg.trailing_retracement_pct > 0
+            and mfe_pct >= cfg.trailing_trigger_pct):
+        trailing_stop = mfe_pct - cfg.trailing_retracement_pct
+        if pnl_pct <= trailing_stop:
+            return True, f"trailing_stop({pnl_pct:.3f}% from peak {mfe_pct:.3f}%)"
+
+    # 4) 时间止损
+    if cfg.max_hold_bars > 0 and bars_held >= cfg.max_hold_bars:
+        return True, f"time_stop({bars_held}bars)"
+
+    return False, ""
+
+
 def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None) -> dict[str, Any]:
     """动量策略做多回测引擎。
 
     逻辑：
     1. 逐 bar 计算 EMA 短/长、BB、RSI
     2. 当信号为 buy/strong_buy 且无持仓时开仓
-    3. 当信号为 sell/strong_sell 或持仓时平仓
-    4. cooldown_bars 内禁止反向开仓
-    5. 最后强制平仓
-
-    Args:
-        bars: 价格序列，每个元素 {"t": 时间戳, "y": 价格}
-        params: 动量策略参数
-        config: 回测配置（手续费、滑点等）
-
-    Returns:
-        包含 equity（权益曲线）、trades（成交记录）、metrics（绩效指标）的字典
+    3. 持仓中先检查止损/止盈/移动止盈/时间止损（与 paper_trading 对齐）
+    4. 当信号为 sell/strong_sell 时平仓
+    5. cooldown_bars 内禁止反向开仓
+    6. 最后强制平仓
     """
     cfg = config or BacktestConfig()
     cost_factor = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
@@ -158,6 +203,9 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
     cash = 1.0
     shares = 0.0
     position_long = False
+    entry_price = 0.0
+    entry_bar_idx = 0
+    mfe_pct = 0.0  # 持仓期间的最大盈利百分比
 
     prices = [float(b["y"]) for b in bars]
     ema_s = ema_series(prices, params.short_p)
@@ -174,6 +222,28 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
         if i + 1 < min_len:
             equity_curve.append({"t": t, "equity": round(eq_before, 6), "price": price})
             continue
+
+        # ── 风控检查（先于信号判断）：触发止损/止盈则立即平仓
+        if position_long and entry_price > 0 and price > 0:
+            current_pnl_pct = (price - entry_price) / entry_price * 100
+            mfe_pct = max(mfe_pct, current_pnl_pct)
+            should_exit, reason = _check_risk_exit(
+                cfg, +1, entry_price, price, i - entry_bar_idx, mfe_pct,
+            )
+            if should_exit:
+                cash = shares * price * cost_factor
+                trades.append({
+                    "action": "sell", "t": t, "price": round(price, 6),
+                    "signal": "risk_exit", "reason": reason,
+                })
+                shares = 0.0
+                position_long = False
+                entry_price = 0.0
+                mfe_pct = 0.0
+                cooldown_remaining = params.cooldown_bars
+                eq = cash
+                equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
+                continue
 
         last_s = ema_s[i]
         last_l = ema_l[i]
@@ -200,7 +270,7 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
 
         rsi_val = rsi_data[i] if i < len(rsi_data) else None
         if rsi_val is not None:
-            sig = _fuse_with_rsi(sig, rsi_val)
+            sig = _fuse_with_rsi(sig, rsi_val, params.rsi_buy_kill, params.rsi_sell_kill)
 
         target_long = sig in ("strong_buy", "buy")
 
@@ -210,6 +280,9 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
             shares = cash * cost_factor / price
             cash = 0.0
             position_long = True
+            entry_price = price
+            entry_bar_idx = i
+            mfe_pct = 0.0
             cooldown_remaining = params.cooldown_bars
             trades.append({"action": "buy", "t": t, "price": round(price, 6), "signal": sig})
         elif not target_long and position_long and shares > 0 and price > 0:
@@ -217,14 +290,27 @@ def run_momentum_long_only_backtest(bars: list[dict], params: MomentumParams, co
             trades.append({"action": "sell", "t": t, "price": round(price, 6), "signal": sig})
             shares = 0.0
             position_long = False
+            entry_price = 0.0
+            mfe_pct = 0.0
             cooldown_remaining = params.cooldown_bars
 
         eq = cash + shares * price
         equity_curve.append({"t": t, "equity": round(eq, 6), "price": price})
 
     metrics = _compute_metrics(equity_curve, trades, bars)
+    note_parts = []
     if cfg.commission_rate > 0 or cfg.slippage_pct > 0:
-        metrics["note"] = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" + metrics.get("note", "")
+        note_parts.append(f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%")
+    if cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0:
+        note_parts.append(f"止损{cfg.stop_loss_pct:.2f}%/止盈{cfg.take_profit_pct:.2f}%")
+    if cfg.max_hold_bars > 0:
+        note_parts.append(f"最大持仓{cfg.max_hold_bars}bar")
+    risk_exits = sum(1 for tr in trades if tr.get("signal") == "risk_exit")
+    if risk_exits > 0:
+        note_parts.append(f"风控触发{risk_exits}次")
+    if note_parts:
+        metrics["note"] = "；".join(note_parts) + "；" + metrics.get("note", "")
+    metrics["riskExitCount"] = risk_exits
     return {"equity": equity_curve, "trades": trades, "metrics": metrics}
 
 
@@ -464,6 +550,8 @@ def momentum_params_from_body(body: dict, symbol: str | None = None) -> Momentum
         volume_period=int(p.get("volume_period", merged.get("volume_period", 0))),
         volume_confirm_ratio=float(p.get("volume_confirm_ratio", merged.get("volume_confirm_ratio", 1.5))),
         volume_weaken_ratio=float(p.get("volume_weaken_ratio", merged.get("volume_weaken_ratio", 0.6))),
+        rsi_buy_kill=float(p.get("rsi_buy_kill", merged.get("rsi_buy_kill", 70.0))),
+        rsi_sell_kill=float(p.get("rsi_sell_kill", merged.get("rsi_sell_kill", 30.0))),
     )
 
 
@@ -472,6 +560,11 @@ def backtest_config_from_body(body: dict) -> BacktestConfig:
         mode=str(body.get("mode", "long_only")).strip().lower(),
         commission_rate=float(body.get("commission_rate", 0.0)),
         slippage_pct=float(body.get("slippage_pct", 0.0)),
+        stop_loss_pct=float(body.get("stop_loss_pct", 0.0)),
+        take_profit_pct=float(body.get("take_profit_pct", 0.0)),
+        trailing_trigger_pct=float(body.get("trailing_trigger_pct", 0.0)),
+        trailing_retracement_pct=float(body.get("trailing_retracement_pct", 0.0)),
+        max_hold_bars=int(body.get("max_hold_bars", 0)),
     )
 
 
@@ -480,7 +573,8 @@ def backtest_config_from_body(body: dict) -> BacktestConfig:
 def run_momentum_long_short_backtest(
     bars: list[dict], params: MomentumParams, config: BacktestConfig | None = None,
 ) -> dict[str, Any]:
-    """Long-Short: buy/strong_buy → long, sell/strong_sell → short, neutral → flat."""
+    """Long-Short: buy/strong_buy → long, sell/strong_sell → short, neutral → flat。
+    支持止损/止盈/移动止盈/时间止损（与 paper_trading 对齐）。"""
     cfg = config or BacktestConfig()
     cost = max(0.0, 1.0 - cfg.commission_rate - cfg.slippage_pct)
     min_len = params.long_p + 2
@@ -493,6 +587,8 @@ def run_momentum_long_short_backtest(
     rsi_data = rsi_series(prices, params.rsi_period) if params.rsi_period > 0 else [None] * len(prices)
     pos = 0  # -1 short, 0 flat, +1 long
     entry_p = 0.0
+    entry_bar_idx = 0
+    mfe_pct = 0.0
     capital = 1.0
     cooldown = 0
 
@@ -507,6 +603,30 @@ def run_momentum_long_short_backtest(
         if i + 1 < min_len:
             equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
             continue
+
+        # ── 风控检查（先于信号判断）
+        if pos != 0 and entry_p > 0 and px > 0:
+            cur_pnl = ((px - entry_p) / entry_p * 100) if pos == 1 else ((entry_p - px) / entry_p * 100)
+            mfe_pct = max(mfe_pct, cur_pnl)
+            should_exit, reason = _check_risk_exit(
+                cfg, pos, entry_p, px, i - entry_bar_idx, mfe_pct,
+            )
+            if should_exit:
+                if pos == 1:
+                    capital *= (px / entry_p) * cost
+                    trades.append({"action": "sell", "t": t, "price": round(px, 6),
+                                   "signal": "risk_exit", "reason": reason})
+                else:
+                    capital *= max(0.0, 2.0 - px / entry_p) * cost
+                    trades.append({"action": "cover", "t": t, "price": round(px, 6),
+                                   "signal": "risk_exit", "reason": reason})
+                pos = 0
+                entry_p = 0.0
+                mfe_pct = 0.0
+                cooldown = params.cooldown_bars
+                equity_curve.append({"t": t, "equity": round(capital, 6), "price": px})
+                continue
+
         ls, ll, ps = ema_s[i], ema_l[i], ema_s[i - 1]
         if ls is None or ll is None or ps is None:
             equity_curve.append({"t": t, "equity": round(eq, 6), "price": px})
@@ -524,7 +644,7 @@ def run_momentum_long_short_backtest(
             sig = _fuse_with_bb(sig, bb_now["percentB"], bb_prev is not None and bb_now["bandwidth"] > bb_prev["bandwidth"])
         rsi_v = rsi_data[i] if i < len(rsi_data) else None
         if rsi_v is not None:
-            sig = _fuse_with_rsi(sig, rsi_v)
+            sig = _fuse_with_rsi(sig, rsi_v, params.rsi_buy_kill, params.rsi_sell_kill)
 
         tgt = 1 if sig in ("strong_buy", "buy") else (-1 if sig in ("strong_sell", "sell") else 0)
         if cooldown > 0:
@@ -539,9 +659,12 @@ def run_momentum_long_short_backtest(
             if tgt != 0:
                 capital *= cost
                 entry_p = px
+                entry_bar_idx = i
+                mfe_pct = 0.0
                 trades.append({"action": "buy" if tgt == 1 else "short", "t": t, "price": round(px, 6), "signal": sig})
             else:
                 entry_p = 0.0
+                mfe_pct = 0.0
             pos = tgt
             cooldown = params.cooldown_bars
             eq = capital
@@ -549,8 +672,20 @@ def run_momentum_long_short_backtest(
 
     metrics = _compute_metrics(equity_curve, trades, bars)
     metrics["mode"] = "long_short"
-    cost_str = f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%；" if (cfg.commission_rate > 0 or cfg.slippage_pct > 0) else "不计手续费与滑点；"
-    metrics["note"] = f"Long-Short，{cost_str}年化按首尾时间线性外推；夏普仅供参考。"
+    note_parts = []
+    if cfg.commission_rate > 0 or cfg.slippage_pct > 0:
+        note_parts.append(f"手续费{cfg.commission_rate*100:.3f}%/滑点{cfg.slippage_pct*100:.3f}%")
+    else:
+        note_parts.append("不计手续费与滑点")
+    if cfg.stop_loss_pct > 0 or cfg.take_profit_pct > 0:
+        note_parts.append(f"止损{cfg.stop_loss_pct:.2f}%/止盈{cfg.take_profit_pct:.2f}%")
+    if cfg.max_hold_bars > 0:
+        note_parts.append(f"最大持仓{cfg.max_hold_bars}bar")
+    risk_exits = sum(1 for tr in trades if tr.get("signal") == "risk_exit")
+    if risk_exits > 0:
+        note_parts.append(f"风控触发{risk_exits}次")
+    metrics["note"] = f"Long-Short，{'；'.join(note_parts)}。"
+    metrics["riskExitCount"] = risk_exits
     return {"equity": equity_curve, "trades": trades, "metrics": metrics}
 
 

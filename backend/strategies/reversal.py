@@ -171,6 +171,33 @@ def calc_reversal(vals: list[float],
 
     strength = min(100.0, abs_score * 100)
 
+    # ── 观望原因诊断（neutral 时生成）──────────────────────────
+    reasons: list[str] = []
+    if signal == "neutral":
+        # 1. RSI 未达极端区
+        if rsi_val is not None and p.rsi_extreme_low < rsi_val < p.rsi_extreme_high:
+            reasons.append(f"RSI未达极端 {rsi_val:.1f} ({p.rsi_extreme_low:.0f}~{p.rsi_extreme_high:.0f})")
+        # 2. BB 位置居中
+        if bb_now:
+            pctb = bb_now["percentB"]
+            if p.pctb_low < pctb < p.pctb_high:
+                reasons.append(f"BB位置居中 %B={pctb:.3f}")
+        # 3. 偏离度不足
+        if abs(deviation_pct) < p.deviation_entry:
+            reasons.append(f"偏离度不足 {abs(deviation_pct):.2f}%<{p.deviation_entry}%")
+        # 4. 多空抵消 / 综合得分不足
+        if not reasons:
+            scores = [("RSI", rsi_score), ("BB", bb_score), ("偏离", dev_score)]
+            pos = [n for n, v in scores if v > 0]
+            neg = [n for n, v in scores if v < 0]
+            if pos and neg:
+                reasons.append("多空信号互相抵消")
+            elif abs_score < p.min_score:
+                reasons.append(f"综合得分不足 {abs_score:.3f}<{p.min_score}")
+        # 5. 量比萎缩削弱
+        if volume_ratio is not None and volume_ratio < p.volume_weaken_ratio:
+            reasons.append(f"量比萎缩 {volume_ratio:.2f}x<{p.volume_weaken_ratio}x")
+
     result: dict[str, Any] = {
         "signal": signal,
         "score": round(total_score, 4),
@@ -181,6 +208,7 @@ def calc_reversal(vals: list[float],
         "strength": round(strength, 2),
         "ema": round(ema_val, 4) if ema_val else None,
         "rsi": round(rsi_val, 2) if rsi_val is not None else None,
+        "reasons": reasons,
     }
     if bb_info:
         result["bb"] = {k: round(v, 4) if isinstance(v, float) else v for k, v in bb_info.items()}

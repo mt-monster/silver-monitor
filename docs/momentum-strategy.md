@@ -295,14 +295,26 @@ minLen = long_p + 2
 
 代码：`assets/js/monitor/reversal.js` — `Monitor.calcReversal()`
 
-**四档输出信号**：
+**五档输出信号**：
 
 | 信号 key | 中文 | 含义 |
 |---|---|---|
-| `reversal_buy` | 反弹买入 | RSI 超卖 + 价格低于 BB 下轨一定偏差 |
-| `reversal_strong_buy` | 强烈反弹 | RSI 深度超卖 + 偏差超过强信号阈值 |
-| `reversal_sell` | 回落卖出 | RSI 超买 + 价格高于 BB 上轨一定偏差 |
-| `reversal_strong_sell` | 强烈回落 | RSI 深度超买 + 偏差超过强信号阈值 |
+| `strong_buy` | 强烈反弹 | RSI 深度超卖 + 偏差超过强信号阈值 |
+| `buy` | 反弹买入 | RSI 超卖 + 价格低于 BB 下轨一定偏差 |
+| `neutral` | 观望 | 综合得分不足 / 各分项方向抵消 / 成交量萎缩降级 |
+| `sell` | 回落卖出 | RSI 超买 + 价格高于 BB 上轨一定偏差 |
+| `strong_sell` | 强烈回落 | RSI 深度超买 + 偏差超过强信号阈值 |
+
+**观望原因诊断**：当信号为 `neutral` 时，前端面板会展示具体原因，与动量策略的观望诊断对齐：
+
+| 诊断项 | 触发条件 | 说明 |
+|---|---|---|
+| RSI 未达极端 | `rsi_extreme_low < RSI < rsi_extreme_high` | RSI 不在深度超买/超卖区，反转条件不充分 |
+| BB 位置居中 | `pctb_low < %B < pctb_high` | 价格位于布林带中部，无极端偏离 |
+| 偏离度不足 | `\|deviation\| < deviation_entry` | 价格偏离 EMA 均值未达到入场阈值 |
+| 多空信号互相抵消 | RSI/BB/偏离度分项有正有负 | 各指标方向矛盾，加权后得分被拉低 |
+| 综合得分不足 | `abs(score) < min_score` | 各分项同向但力度不够，未达信号门槛 |
+| 量比萎缩 | `volume_ratio < volume_weaken_ratio` | 成交量萎缩，信号被削弱降级 |
 
 ### 7.2 核心算法
 

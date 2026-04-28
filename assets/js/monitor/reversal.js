@@ -126,6 +126,64 @@
     };
   };
 
+  // ── 观望原因诊断（neutral 时展示）────────────────────────────────────
+  function _neutralReasons(info, params) {
+    if (!info || info.signal !== "neutral") return [];
+    const p = params || {};
+    const reasons = [];
+
+    const oversold = p.rsi_oversold != null ? p.rsi_oversold : 30;
+    const overbought = p.rsi_overbought != null ? p.rsi_overbought : 70;
+    const extLow = p.rsi_extreme_low != null ? p.rsi_extreme_low : 20;
+    const extHigh = p.rsi_extreme_high != null ? p.rsi_extreme_high : 80;
+    const pctbLow = p.pctb_low != null ? p.pctb_low : 0.05;
+    const pctbHigh = p.pctb_high != null ? p.pctb_high : 0.95;
+    const devEntry = p.deviation_entry != null ? p.deviation_entry : 1.5;
+    const minScore = p.min_score != null ? p.min_score : 0.5;
+    const volWeaken = p.volume_weaken_ratio != null ? p.volume_weaken_ratio : 0.6;
+
+    // 1. RSI 未达极端区
+    if (info.rsi != null && info.rsi > extLow && info.rsi < extHigh) {
+      reasons.push(`RSI未达极端 ${info.rsi.toFixed(1)} (${extLow}~${extHigh})`);
+    }
+
+    // 2. BB 位置居中
+    if (info.bb) {
+      const pctb = info.bb.percentB;
+      if (pctb > pctbLow && pctb < pctbHigh) {
+        reasons.push(`BB位置居中 %B=${pctb.toFixed(3)}`);
+      }
+    }
+
+    // 3. 偏离度不足
+    if (Math.abs(info.deviationPct) < devEntry) {
+      reasons.push(`偏离度不足 ${Math.abs(info.deviationPct).toFixed(2)}%<${devEntry}%`);
+    }
+
+    // 4. 多空信号互相抵消 / 综合得分不足
+    if (reasons.length === 0) {
+      const scores = [
+        { name: "RSI", val: info.rsiScore },
+        { name: "BB", val: info.bbScore },
+        { name: "偏离", val: info.devScore }
+      ];
+      const pos = scores.filter(s => s.val > 0);
+      const neg = scores.filter(s => s.val < 0);
+      if (pos.length > 0 && neg.length > 0) {
+        reasons.push("多空信号互相抵消");
+      } else if (Math.abs(info.score) < minScore) {
+        reasons.push(`综合得分不足 ${Math.abs(info.score).toFixed(3)}<${minScore}`);
+      }
+    }
+
+    // 5. 量比萎缩削弱信号
+    if (info.volumeRatio != null && info.volumeRatio < volWeaken) {
+      reasons.push(`量比萎缩 ${info.volumeRatio.toFixed(2)}x<${volWeaken}x`);
+    }
+
+    return reasons.slice(0, 3);
+  }
+
   /**
    * 渲染反转信号到 DOM
    * @param {string} prefix  "hu" 或 "co"
@@ -213,15 +271,22 @@
 
     if (noteEl) {
       let note = `综合 ${info.score >= 0 ? "+" : ""}${info.score.toFixed(3)}`;
-      if (info.rsi != null) {
-        if (info.rsi < 30) note += " | RSI超卖";
-        else if (info.rsi > 70) note += " | RSI超买";
+      if (info.signal === "neutral") {
+        const symbol = prefix === "hu" ? "huyin" : "comex";
+        const p = Monitor.getReversalParams ? Monitor.getReversalParams(symbol) : {};
+        const reasons = _neutralReasons(info, p);
+        if (reasons.length > 0) note += ` | 观望：${reasons.join("；")}`;
+      } else {
+        if (info.rsi != null) {
+          if (info.rsi < 30) note += " | RSI超卖";
+          else if (info.rsi > 70) note += " | RSI超买";
+        }
+        if (info.bb) {
+          if (info.bb.percentB < 0) note += " | 跌破下轨";
+          else if (info.bb.percentB > 1) note += " | 突破上轨";
+        }
+        if (Math.abs(info.deviationPct) > 1.5) note += " | 偏离均值";
       }
-      if (info.bb) {
-        if (info.bb.percentB < 0) note += " | 跌破下轨";
-        else if (info.bb.percentB > 1) note += " | 突破上轨";
-      }
-      if (Math.abs(info.deviationPct) > 1.5) note += " | 偏离均值";
       noteEl.textContent = note;
     }
   };

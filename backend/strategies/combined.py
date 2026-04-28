@@ -49,9 +49,9 @@ _SIGNAL_DIRECTIONS = {
 
 _SIGNAL_SCORES = {
     "strong_buy": 1.0,
-    "buy": 0.6,
+    "buy": 0.5,
     "neutral": 0.0,
-    "sell": -0.6,
+    "sell": -0.5,
     "strong_sell": -1.0,
 }
 
@@ -69,21 +69,29 @@ def _is_active(sig: str) -> bool:
 
 
 def _signal_score(sig: str, strength: float = 50.0) -> float:
-    """将信号转换为方向强度分数 (-1.0 ~ 1.0)。"""
-    base = _SIGNAL_SCORES.get(sig, 0.0)
-    # strength 是 0~100 的百分比，映射到 0~1
-    return base * (strength / 100.0)
+    """将信号转换为方向强度分数 (-1.0 ~ 1.0)。
+
+    不使用 strength 做二次缩放，因为 buy/strong_buy 本身已经是信号强度的层级表达。
+    反转策略暂无 strength 字段，统一用 base score 保证两策略权重对等。
+    """
+    return _SIGNAL_SCORES.get(sig, 0.0)
 
 
 def _score_to_signal(score: float) -> str:
-    """将组合得分转换为信号。"""
-    if score >= 0.8:
+    """将组合得分转换为信号。
+
+    阈值设计目标：
+    - 单一策略 buy (0.5) × 默认权重 0.6 = 0.3 ≥ 0.12 → buy 通过
+    - 单一策略 strong_buy (1.0) × 0.6 = 0.6 ≥ 0.4 → strong_buy 通过
+    - 双策略冲突（buy + sell）时，得分接近 0 → neutral，避免低质量冲突单
+    """
+    if score >= 0.4:
         return "strong_buy"
-    elif score >= 0.35:
+    elif score >= 0.12:
         return "buy"
-    elif score <= -0.8:
+    elif score <= -0.4:
         return "strong_sell"
-    elif score <= -0.35:
+    elif score <= -0.12:
         return "sell"
     return "neutral"
 

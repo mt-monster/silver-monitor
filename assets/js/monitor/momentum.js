@@ -73,9 +73,11 @@
   };
 
   /** RSI 超买/超卖修正信号（与后端 _fuse_with_rsi 对齐） */
-  function _fuseWithRSI(sig, rsi) {
-    if (sig === "buy" && rsi > 70) return "neutral";
-    if (sig === "sell" && rsi < 30) return "neutral";
+  function _fuseWithRSI(sig, rsi, buyKill, sellKill) {
+    const bk = buyKill != null ? buyKill : 70;
+    const sk = sellKill != null ? sellKill : 30;
+    if (sig === "buy" && rsi > bk) return "neutral";
+    if (sig === "sell" && rsi < sk) return "neutral";
     return sig;
   }
 
@@ -135,6 +137,43 @@
       if (volumeRatio > cr) return "strong_sell";
     }
     return signal;
+  }
+
+  function _fmtPct(v) {
+    return `${v >= 0 ? "+" : ""}${v.toFixed(3)}%`;
+  }
+
+  function _neutralReasons(info, thresholds) {
+    if (!info || info.signal !== "neutral") return [];
+    const th = thresholds || {};
+    const se = th.spreadEntry != null ? th.spreadEntry : 0.10;
+    const sl = th.slopeEntry != null ? th.slopeEntry : 0.02;
+    const wr = th.volumeWeakenRatio != null ? th.volumeWeakenRatio : 0.6;
+    const rsiBuyKill = th.rsiBuyKill != null ? th.rsiBuyKill : 70;
+    const rsiSellKill = th.rsiSellKill != null ? th.rsiSellKill : 30;
+    const reasons = [];
+    if (Math.abs(info.spreadPct) < se) {
+      reasons.push(`EMA张口不足 ${Math.abs(info.spreadPct).toFixed(3)}%<${se.toFixed(3)}%`);
+    }
+    if (info.shortEMA > info.longEMA && info.slopePct <= sl) {
+      reasons.push(`短线斜率不足 ${_fmtPct(info.slopePct)}≤+${sl.toFixed(3)}%`);
+    } else if (info.shortEMA < info.longEMA && info.slopePct >= -sl) {
+      reasons.push(`短线斜率不足 ${_fmtPct(info.slopePct)}≥-${sl.toFixed(3)}%`);
+    } else if (info.shortEMA === info.longEMA) {
+      reasons.push("EMA短长线贴合");
+    }
+    if (info.rsi != null && info.rsi > rsiBuyKill) {
+      reasons.push(`RSI超买 ${info.rsi.toFixed(1)}>${rsiBuyKill.toFixed(0)}`);
+    } else if (info.rsi != null && info.rsi < rsiSellKill) {
+      reasons.push(`RSI超卖 ${info.rsi.toFixed(1)}<${rsiSellKill.toFixed(0)}`);
+    }
+    if (info.volumeRatio != null && info.volumeRatio < wr) {
+      reasons.push(`量比不足 ${info.volumeRatio.toFixed(2)}x<${wr.toFixed(2)}x`);
+    }
+    if (reasons.length === 0 && info.rsi != null && info.rsi >= 45 && info.rsi <= 55) {
+      reasons.push(`RSI中性 ${info.rsi.toFixed(1)}`);
+    }
+    return reasons.slice(0, 3);
   }
 
   /** EMA 短/长 张口 + 短 EMA 斜率 + Bollinger 带融合 + 成交量确认 */
@@ -255,7 +294,7 @@
     let rsi = null;
     if (rsiP > 0 && vals.length >= rsiP + 1) {
       rsi = Monitor.rsiAt(vals, rsiP);
-      if (rsi != null) signal = _fuseWithRSI(signal, rsi);
+      if (rsi != null) signal = _fuseWithRSI(signal, rsi, th.rsiBuyKill, th.rsiSellKill);
     }
 
     // 成交量确认/降级
@@ -313,8 +352,10 @@
 
     // 更新 EMA 周期标签（始终更新，即使 info 为 null）
     const symbol = symbolByPrefix[prefix];
+    let periods = null;
+    const thresholds = symbol && Monitor.getMomentumThresholds ? Monitor.getMomentumThresholds(symbol) : {};
     if (symbol && Monitor.getMomentumPeriods) {
-      const periods = Monitor.getMomentumPeriods(symbol);
+      periods = Monitor.getMomentumPeriods(symbol);
       if (periods) {
         const badgeNode = document.getElementById(prefix + "SignalBadge");
         let tagEl = null;
@@ -356,6 +397,13 @@
 
     if (!badge || !slopeEl || !emaFastEl || !emaSlowEl || !bar) return;
 
+    if (periods) {
+      const fastLabel = emaFastEl.previousElementSibling;
+      const slowLabel = emaSlowEl.previousElementSibling;
+      if (fastLabel) fastLabel.textContent = `EMA${periods.shortP}`;
+      if (slowLabel) slowLabel.textContent = `EMA${periods.longP}`;
+    }
+
 
 
     if (!info) {
@@ -378,9 +426,7 @@
 
       if (noteEl) {
 
-        const symbol = symbolByPrefix[prefix];
-
-        const lp = Monitor.getMomentumPeriods(symbol).longP ?? 20;
+        const lp = periods ? periods.longP : 20;
 
         const minPts = lp * 2;
 
@@ -447,6 +493,8 @@
     if (noteEl) {
 
       let note = `动量差 ${info.spreadPct >= 0 ? "+" : ""}${info.spreadPct.toFixed(3)}%`;
+      const reasons = _neutralReasons(info, thresholds);
+      if (reasons.length > 0) note += ` | 观望：${reasons.join("；")}`;
 
       if (info.bb) {
 
@@ -472,7 +520,9 @@
     const rsiEl = findEl(prefix + "RSI");
     if (rsiEl && info.rsi != null) {
       const r = info.rsi;
-      const rcls = r > 70 ? "up" : r < 30 ? "down" : "";
+      const rsiBuyKill = thresholds.rsiBuyKill != null ? thresholds.rsiBuyKill : 70;
+      const rsiSellKill = thresholds.rsiSellKill != null ? thresholds.rsiSellKill : 30;
+      const rcls = r > rsiBuyKill ? "up" : r < rsiSellKill ? "down" : "";
       rsiEl.innerHTML = `<span class="val ${rcls}">${r.toFixed(1)}</span>`;
     } else if (rsiEl) {
       rsiEl.textContent = "--";

@@ -26,6 +26,9 @@ class MomentumParams:
     volume_period: int = 0
     volume_confirm_ratio: float = 1.5
     volume_weaken_ratio: float = 0.6
+    # RSI 融合压制阈值（参数化，便于按品种/频率调整）
+    rsi_buy_kill: float = 70.0   # RSI 高于此值时压制 buy → neutral
+    rsi_sell_kill: float = 30.0  # RSI 低于此值时压制 sell → neutral
 
 
 def ema_series(values: list[float], period: int) -> list[float]:
@@ -154,12 +157,17 @@ def _fuse_with_bb(base_signal: str, pct_b: float, bw_expanding: bool,
     return sig
 
 
-def _fuse_with_rsi(base_signal: str, rsi: float) -> str:
-    """RSI 超买/超卖修正信号。"""
+def _fuse_with_rsi(base_signal: str, rsi: float,
+                   buy_kill: float = 70.0, sell_kill: float = 30.0) -> str:
+    """RSI 超买/超卖修正信号。
+
+    buy_kill / sell_kill 可按品种与数据频率调整。短周期数据建议放宽（如 75/25），
+    日线数据可使用经典 70/30。
+    """
     sig = base_signal
-    if sig == "buy" and rsi > 70:
+    if sig == "buy" and rsi > buy_kill:
         sig = "neutral"
-    elif sig == "sell" and rsi < 30:
+    elif sig == "sell" and rsi < sell_kill:
         sig = "neutral"
     return sig
 
@@ -321,7 +329,7 @@ def calc_momentum(vals: list[float],
         rsi_all = rsi_series(vals, p.rsi_period)
         rsi_val = rsi_all[-1]
         if rsi_val is not None:
-            signal = _fuse_with_rsi(signal, rsi_val)
+            signal = _fuse_with_rsi(signal, rsi_val, p.rsi_buy_kill, p.rsi_sell_kill)
 
     # 成交量确认/降级
     volume_ratio: float | None = None
