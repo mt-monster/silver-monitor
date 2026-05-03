@@ -180,10 +180,20 @@ python -m pytest tests/ -x -q --tb=short
 
 ### 5.3 已知失败（基线问题，非新回归）
 
-- `tests/test_momentum_strategy.py::MomentumCoreTestCase::test_custom_thresholds_weaker_entry` 当前失败
-- `tests/test_source_switch.py` 全部用例当前失败（数据源切换 API 尚未实现）
+> 基线快照日期：2026-05-04。以下失败在本日的 `pytest tests/ --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"` 中 **确认为基线**（`4 failed, 172 passed, 26 subtests passed`）。
 
-在全量回归时，应将以上失败视为已知基线问题，而非新引入的回归。
+- `tests/test_momentum_strategy.py::MomentumCoreTestCase::test_custom_thresholds_weaker_entry`
+  - 原因：放宽阈值后期望 `buy/strong_buy`，当前返回 `neutral`。
+- `tests/test_backtest.py::BacktestEngineTestCase::test_sharpe_present_when_equity_volatile`
+  - 原因：equity 波动时 Sharpe 字段仍为 `None`，回测引擎未正确计算。
+- `tests/test_config_validation.py::ConfigValidationTestCase::test_momentum_realtime_comex_not_more_aggressive_than_default`
+  - 原因：`monitor.config.json` 中 `momentum.realtime.comex.spread_entry=0.008` 低于 default `0.012`。
+- `tests/test_config_validation.py::ConfigValidationTestCase::test_momentum_realtime_spread_entry_not_too_small`（subtest `symbol=comex`）
+  - 原因：同上，`0.008 < 0.01` 噪声下限。
+
+**已修复、从清单移除**：`tests/test_source_switch.py`（8 用例，2026-05-04 全部 PASS）。
+
+在全量回归时，应将以上失败视为已知基线问题，而非新引入的回归。**修改业务代码前建议先重跑一遍基线**，避免把历史失败误判为新失败。
 
 ### 5.4 开发自测最小集
 

@@ -1,29 +1,35 @@
 ---
 name: update-tests-and-docs
 description: |
-  在 silver-monitor 项目完成功能修改后，自动补充和更新测试用例，并同步更新 docs/ 目录下的相关 Markdown 文档。
-  
+  **强制性后置流程**：在 silver-monitor 项目中，**每次修改业务代码后**（backend/、assets/js/、miniprogram/、monitor.config.json 任何一处），必须按固定顺序执行：
+    ① 跑一遍完整单元测试；
+    ② 跑一遍完整 API / 集成测试；
+    ③ 对缺失覆盖的新行为补业务测试案例；
+    ④ 同步更新 docs/ 下所有受影响的中文文档。
+  未完成 ①② 不得声明"任务完成"。
+
   触发场景：
-  1. 用户完成某个功能点/bug修复后说"补一下测试"或"更新文档"
-  2. 用户修改了策略算法、API接口、数据模型或前端逻辑
-  3. 用户新增了功能模块或配置项
-  4. 任何涉及 tests/ 或 docs/ 目录的变更请求
-  
-  本 skill 覆盖：Python 后端单元测试、JavaScript 前端测试、API 接口测试、性能/回归测试，以及对应的技术文档更新。
+  1. 任何对 backend/ 的修改（哪怕只改 1 行）。
+  2. 用户显式说"补测试""跑测试""更新文档"。
+  3. 新增/修改策略算法、API 接口、数据模型、配置项、前端页面逻辑。
+  4. 修复 bug（必须补回归测试，不得删原测试）。
+
+  覆盖范围：Python 后端单元测试、API 集成测试、性能/回归测试、外部数据源联调脚本、以及对应的中文技术文档。
 ---
 
-# 功能修改后补充测试与文档
+# 功能修改后的强制验证流程
 
-## 核心流程
+> **铁律**：**改完代码不等于任务完成**。必须在结束前完成本 skill 全部 6 步，且最终消息中必须展示 pytest 的 `N passed, M failed` 行。
 
-修改完功能点后，按以下顺序执行：
+## 核心流程（严格顺序）
 
-1. **分析变更影响范围** —— 确定修改了哪些模块
-2. **识别测试缺口** —— 哪些行为需要新测试，哪些旧测试需要更新
-3. **编写/更新测试** —— 遵循项目测试风格
-4. **识别文档缺口** —— 哪些文档需要同步更新
-5. **更新文档** —— 遵循项目文档风格
-6. **运行验证** —— 确保新测试通过且旧测试不挂
+0. **基线快照** —— 开工前或 `git stash` 后先跑一次完整测试，记录当前 pass/fail（重点关注 AGENTS.md §5.3 中的"已知失败"）。
+1. **分析变更影响范围** —— 确定修改了哪些模块。
+2. **识别测试缺口** —— 哪些行为需要新测试，哪些旧测试需要更新。
+3. **编写/更新测试** —— 遵循项目 unittest.TestCase 风格（pytest 兼容运行）。
+4. **完整复跑单元 + 集成测试** —— 与第 0 步基线对比，**不得新增任何失败**。
+5. **识别并更新 docs/** —— 同步相关中文文档。
+6. **最终复跑一次** —— 确认文档改动不影响测试，在消息中展示最终 pytest 汇总行。
 
 ---
 
@@ -101,7 +107,7 @@ class MomentumCoreTestCase(unittest.TestCase):
 ```
 
 **风格要求**：
-- 使用 `unittest` 框架（不引入 pytest 等额外依赖）
+- **编写**时沿用 `unittest.TestCase` 风格，**运行**用 pytest（pytest 原生兼容 unittest.TestCase）
 - 测试方法名用 `test_<场景>_<预期行为>` 格式
 - 复杂场景用 docstring 中文描述业务含义
 - 使用 `assertAlmostEqual` 比较浮点数
@@ -129,17 +135,20 @@ def test_custom_thresholds_weaker_entry(self):
 - 单点突变（极端值）
 - 参数为 0 / 负数时的行为
 
-### 运行测试
+### 运行测试（日常开发速查）
 
 ```powershell
+# 激活虚拟环境（已激活可跳过）
 .\.venv\Scripts\Activate.ps1
-python -m unittest discover -s tests -p "test_*.py" -v
+
+# 完整回归（排除研究脚本和外部联调）
+python -m pytest tests/ -q --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"
+
+# 单文件快速迭代
+python -m pytest tests/test_momentum_strategy.py -v
 ```
 
-或针对单个文件：
-```powershell
-python -m unittest tests.test_momentum_strategy -v
-```
+> 项目统一用 **pytest** 运行（AGENTS.md §5.1）。现有用例基于 `unittest.TestCase`，pytest 天然兼容，**不要**把 unittest 风格重写成 pytest 风格。
 
 ---
 
@@ -192,26 +201,97 @@ python -m unittest tests.test_momentum_strategy -v
 
 ---
 
-## 第六步：运行验证
+## 第六步：运行验证（强制命令）
 
-### 测试验证
+### 测试分层
+
+| 层级 | 对应文件 | 是否必跑 |
+|------|----------|---------|
+| **单元测试** | `tests/test_*.py`（除下一行的 API 集成）| ✅ 必跑 |
+| **API / 集成测试** | `test_smoke.py`、`test_backtest_api.py`、`test_threshold_api.py`、`test_source_switch.py`、`test_config_validation.py` | ✅ 必跑 |
+| **外部数据源联调** | `tests/verify_*.py`（iFinD / Infoway / BTC） | ⚠️ 仅在数据源接入变更时跑 |
+| **一次性回测 / 研究脚本** | `tests/_run_*.py`、`tests/_explore_*.py`、`tests/_inspect_*.py` | ❌ 不纳入回归 |
+
+### 强制测试命令（按顺序）
 
 ```powershell
-# 1. 运行全部测试
-python -m unittest discover -s tests -p "test_*.py"
+# 确保日志目录存在（项目根自带 logs/，无则创建）
+if (-not (Test-Path logs)) { New-Item -ItemType Directory logs | Out-Null }
 
-# 2. 如果新增测试文件，单独验证
-python -m unittest tests.test_<新模块> -v
+# ① 基线（开工前或 git stash 后跑一次，产物 logs/pytest-baseline.xml）
+python -m pytest tests/ -q --tb=line `
+  --junit-xml=logs/pytest-baseline.xml `
+  --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"
 
-# 3. 检查测试覆盖率（手动审查）
-# 重点检查：修改的代码路径是否都有测试覆盖
+# ② 改完代码后必须再跑一次完整回归（产物 logs/pytest-latest.xml）
+python -m pytest tests/ -q --tb=short `
+  --junit-xml=logs/pytest-latest.xml `
+  --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"
+
+# ③ 首个失败处停止（调试用）
+python -m pytest tests/ -x -q --tb=short `
+  --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"
+
+# ④ 单独复核新增/修改的模块
+python -m pytest tests/test_<新模块>.py -v
 ```
+
+### 测试报告输出（强制产物）
+
+**每次执行 ①② 后必须输出两份报告**：
+
+1. **机器可读** — `logs/pytest-baseline.xml` / `logs/pytest-latest.xml`（pytest `--junit-xml` 自动生成，无需额外依赖）。
+2. **人类可读** — 在聊天消息末尾展示如下结构化 Markdown 报告（从 pytest 输出摘取，不得省略）：
+
+```markdown
+## 测试报告（<YYYY-MM-DD HH:MM>）
+
+- **范围**：`pytest tests/ --ignore-glob="tests/_*.py" --ignore-glob="tests/verify_*.py"`
+- **汇总**：`N passed, M failed, K subtests passed`（从 pytest 最后一行复制）
+- **耗时**：`<秒数> s`
+- **JUnit XML**：`logs/pytest-latest.xml`
+
+### 失败清单（对比 AGENTS.md §5.3 基线）
+
+| 用例 | 类型 | 原因摘要 | 基线? |
+|------|------|---------|------|
+| `tests/test_xxx.py::...` | FAILED | AssertionError: ... | 是/否 |
+
+### 新增/修改测试
+
+| 文件 | 新增用例数 | 覆盖行为 |
+|------|----------|---------|
+| `tests/test_xxx.py` | 3 | <本次修改对外承诺的行为> |
+
+### 结论
+
+- [ ] 失败数与 AGENTS.md §5.3 基线一致（允许通过）
+- [ ] 新增失败全部已修复 / 或已明示为预期影响
+- [ ] 新增测试全部 PASS
+```
+
+**禁止**只说"测试通过"、"全部绿"之类模糊措辞。**禁止**省略"失败清单"段落（即使 0 failed 也要写 "无"）。
+
+### 与基线对比（必做）
+
+- **允许**：新增测试通过；`AGENTS.md §5.3` 列出的已知失败仍失败（当前基线：4 failed，详见 AGENTS.md §5.3，不在此处冗余列举以防过期）。
+- **禁止**：出现任何新失败。必须当场修复，或在消息中**明示**"此失败为本次修改的预期影响，已同步更新测试期望值"。
+- **必须展示**：最终 pytest 末尾的 `N passed, M failed` 行，不得只说"跑过了"。
+
+### 测试补充原则（当覆盖缺失时触发）
+
+- 顺序：**happy path → 边界（空、极值、负数、0）→ 错误分支**。
+- 优先覆盖**对外承诺**（API 返回字段、配置驱动路径、信号类型分支），再考虑实现细节。
+- **禁止**为让红转绿弱化断言；**禁止**删除或 `skip` 已有测试。
+- 新增测试必须在"强制测试命令 ②" 下 PASS。
 
 ### 文档验证
 
-- [ ] 文档中的代码示例是否可执行？
-- [ ] 参数值是否与代码一致？（交叉验证）
-- [ ] 链接是否有效？（相对路径检查）
+- [ ] 文档中参数默认值是否与 `monitor.config.json` 一致？（用 `grep_search` 交叉核对参数名）
+- [ ] 代码示例是否可直接运行？
+- [ ] 相对链接是否有效？
+- [ ] 日期格式 `YYYY-MM-DD`？
+- [ ] 若修改了 API 契约，`docs/strategy-backtest.md` / `docs/data-integration.md` / `AGENTS.md §8 API 概览` 是否同步？
 
 ---
 
